@@ -102,16 +102,18 @@ def run_hurl_orchestrator(
     *,
     files: list[str] | None = None,
     extra_hurl_args: list[str] | None = None,
-) -> None:
+) -> bool:
     """Discover, order, and execute ``.hurl`` files in dependency order.
 
     When *files* is provided those specific files are used instead of scanning
     *test_dir_str*.  Any *extra_hurl_args* are forwarded verbatim to every hurl
     invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
+
+    Returns ``True`` if all steps succeeded, ``False`` otherwise.
     """
     if shutil.which("hurl") is None:
         print("ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev")
-        return
+        return False
 
     test_dir = Path(test_dir_str)
     templates: dict[str, dict[str, Any]] = {}
@@ -170,6 +172,9 @@ def run_hurl_orchestrator(
                 )
                 sorter.done(node_id)
                 if not success:
-                    return
+                    return False
     except CycleError as e:
         print(f"Circular dependency: {e}")
+        return False
+
+    return True

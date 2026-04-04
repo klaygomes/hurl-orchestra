@@ -72,10 +72,11 @@ def test_missing_hurl_binary_prints_error(
 ) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
     with patch("shutil.which", return_value=None):
-        run_hurl_orchestrator(str(tmp_path))
+        result = run_hurl_orchestrator(str(tmp_path))
     out = capsys.readouterr().out
     assert "ERROR" in out
     assert "hurl" in out
+    assert result is False
 
 
 def test_missing_hurl_binary_makes_no_subprocess_calls(tmp_path: Path) -> None:
@@ -389,7 +390,7 @@ def test_priority_does_not_override_deps(
 
 def test_cli_defaults_to_current_directory() -> None:
     with (
-        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()
@@ -398,7 +399,7 @@ def test_cli_defaults_to_current_directory() -> None:
 
 def test_cli_passes_custom_directory_argument() -> None:
     with (
-        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
         patch("sys.argv", ["hurl-orchestra", "/tmp/tests"]),
     ):
         main()
@@ -407,7 +408,7 @@ def test_cli_passes_custom_directory_argument() -> None:
 
 def test_cli_passes_specific_hurl_files() -> None:
     with (
-        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
         patch("sys.argv", ["hurl-orchestra", "a.hurl", "b.hurl"]),
     ):
         main()
@@ -416,7 +417,7 @@ def test_cli_passes_specific_hurl_files() -> None:
 
 def test_cli_forwards_extra_hurl_args_with_directory() -> None:
     with (
-        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
         patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose"]),
     ):
         main()
@@ -425,11 +426,29 @@ def test_cli_forwards_extra_hurl_args_with_directory() -> None:
 
 def test_cli_forwards_extra_hurl_args_with_files() -> None:
     with (
-        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
         patch("sys.argv", ["hurl-orchestra", "test.hurl", "--variable", "x=y"]),
     ):
         main()
     mock.assert_called_once_with(files=["test.hurl"], extra_hurl_args=["--variable", "x=y"])
+
+
+def test_cli_exits_with_code_1_on_failure() -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=False),
+        patch("sys.argv", ["hurl-orchestra"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
+    assert exc.value.code == 1
+
+
+def test_cli_exits_with_code_0_on_success(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True),
+        patch("sys.argv", ["hurl-orchestra"]),
+    ):
+        main()  # must not raise
 
 
 # ── specific files mode ───────────────────────────────────────────────────────

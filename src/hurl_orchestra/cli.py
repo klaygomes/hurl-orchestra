@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 from .orchestrator import run_hurl_orchestrator
 
@@ -22,9 +23,12 @@ def main() -> None:
 
     paths: list[str] = args.paths
     if len(paths) == 1 and not paths[0].endswith(".hurl"):
-        run_hurl_orchestrator(paths[0], extra_hurl_args=extra_hurl_args)
+        ok = run_hurl_orchestrator(paths[0], extra_hurl_args=extra_hurl_args)
     else:
-        run_hurl_orchestrator(files=paths, extra_hurl_args=extra_hurl_args)
+        ok = run_hurl_orchestrator(files=paths, extra_hurl_args=extra_hurl_args)
+
+    if not ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover
