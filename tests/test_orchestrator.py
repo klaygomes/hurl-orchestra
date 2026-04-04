@@ -231,6 +231,23 @@ def test_corrupted_report_json_is_silently_ignored(
     assert "SUCCESS: auth" in capsys.readouterr().out
 
 
+# ── working directory ─────────────────────────────────────────────────────────
+
+
+def test_subprocess_cwd_set_to_test_directory(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    captured_kwargs: list[dict] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        captured_kwargs.append(dict(kw))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert captured_kwargs[0]["cwd"] == str(tmp_path)
+
+
 # ── environment file ──────────────────────────────────────────────────────────
 
 

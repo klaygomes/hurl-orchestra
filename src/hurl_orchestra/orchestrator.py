@@ -82,6 +82,7 @@ def run_step(
             capture_output=True,
             text=True,
             check=False,
+            cwd=str(Path(node["path"]).parent),
         )
         if result.returncode != 0:
             print(f"FAILED: {node_id}\n{result.stderr}")
