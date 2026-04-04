@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+
+# Type checking & linting
+.mypy_cache/
+.ruff_cache/
+
+# Tests & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build & distribution
+dist/
+build/
+*.egg-info/
+
+# Secrets
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Project-specific
+.claude/
+memory/
