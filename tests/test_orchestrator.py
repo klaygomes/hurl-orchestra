@@ -134,7 +134,7 @@ def test_dependency_executes_before_dependent(tmp_path: Path) -> None:
     def track(cmd: list[str], **kw: object) -> CompletedProcess[str]:
         for i, part in enumerate(cmd):
             if part == "--report-json":
-                order.append(cmd[i + 1].replace("_report.json", ""))
+                order.append(Path(cmd[i + 1]).name.replace("_report.json", ""))
         return ok()
 
     with patch("subprocess.run", side_effect=track):
@@ -215,7 +215,7 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
     assert "auth_token=secret" not in " ".join(profile_cmd)
 
 
-def test_corrupted_report_json_is_silently_ignored(
+def test_corrupted_report_json_prints_warning(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
@@ -229,7 +229,55 @@ def test_corrupted_report_json_is_silently_ignored(
     with patch("subprocess.run", side_effect=fake_run):
         run_hurl_orchestrator(str(tmp_path))
 
-    assert "SUCCESS: auth" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "SUCCESS: auth" in out
+    assert "WARNING" in out
+    assert "token" in out
+
+
+def test_missing_report_prints_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "SUCCESS: auth" in out
+    assert "WARNING" in out
+    assert "token" in out
+
+
+def test_success_shows_captured_variables(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    report = {"entries": [{"response": {"captures": [{"name": "token", "value": "abc"}]}}]}
+
+    with patch("subprocess.run", side_effect=writing_report(report)):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "captured: token" in capsys.readouterr().out
+
+
+def test_success_shows_injected_variables(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    report = {"entries": [{"response": {"captures": [{"name": "token", "value": "abc"}]}}]}
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        for i, part in enumerate(cmd):
+            if part == "--report-json" and "auth_report" in cmd[i + 1]:
+                Path(cmd[i + 1]).write_text(json.dumps(report))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "injected: auth_token" in capsys.readouterr().out
 
 
 # ── working directory ─────────────────────────────────────────────────────────

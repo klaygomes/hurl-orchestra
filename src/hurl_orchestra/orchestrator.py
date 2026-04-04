@@ -12,19 +12,23 @@ import frontmatter
 
 
 def extract_captures(
-    report_path: Path, target_outputs: list[str]
+    report_path: Path, target_outputs: list[str], node_id: str = ""
 ) -> Iterator[tuple[str, Any]]:
     """Yield ``(name, value)`` pairs captured in a Hurl JSON report.
 
     Only names present in *target_outputs* are yielded.
-    Silently returns if the report file is missing or contains invalid JSON.
     """
     if not report_path.exists():
+        if target_outputs:
+            outputs = ", ".join(target_outputs)
+            print(f"WARNING: {node_id}: report not found; [{outputs}] not captured")
         return
     with report_path.open() as rf:
         try:
             report_data = json.load(rf)
         except json.JSONDecodeError:
+            outputs = ", ".join(target_outputs)
+            print(f"WARNING: {node_id}: invalid report JSON; [{outputs}] not captured")
             return
     for entry in report_data.get("entries", []):
         captures = entry.get("response", {}).get("captures", [])
@@ -59,7 +63,7 @@ def run_step(
     Returns ``True`` on success, ``False`` if the hurl process exits non-zero.
     The temporary JSON report file is always cleaned up after execution.
     """
-    report_path = Path(f"{node_id}_report.json")
+    report_path = Path(f"{node_id}_report.json").resolve()
 
     cmd = [
         "hurl",
@@ -70,10 +74,13 @@ def run_step(
         str(report_path),
     ]
 
+    injected: list[str] = []
     for dep_id in graph.get(node_id, set()):
         for var_key, value in shared_vars.items():
             if var_key.startswith(f"{dep_id}."):
-                cmd.extend(["--variable", f"{var_key.replace('.', '_')}={value}"])
+                hurl_name = var_key.replace(".", "_")
+                cmd.extend(["--variable", f"{hurl_name}={value}"])
+                injected.append(hurl_name)
 
     try:
         result = subprocess.run(
@@ -88,10 +95,18 @@ def run_step(
             print(f"FAILED: {node_id}\n{result.stderr}")
             return False
 
-        for name, value in extract_captures(report_path, node["outputs"]):
+        captured: list[str] = []
+        for name, value in extract_captures(report_path, node["outputs"], node_id):
             shared_vars[f"{node_id}.{name}"] = value
+            captured.append(name)
 
-        print(f"SUCCESS: {node_id}")
+        parts: list[str] = []
+        if injected:
+            parts.append(f"injected: {', '.join(injected)}")
+        if captured:
+            parts.append(f"captured: {', '.join(captured)}")
+        suffix = f" [{' | '.join(parts)}]" if parts else ""
+        print(f"SUCCESS: {node_id}{suffix}")
         return True
     finally:
         report_path.unlink(missing_ok=True)
