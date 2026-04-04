@@ -306,7 +306,7 @@ def test_cli_defaults_to_current_directory() -> None:
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()
-    mock.assert_called_once_with(".")
+    mock.assert_called_once_with(".", extra_hurl_args=[])
 
 
 def test_cli_passes_custom_directory_argument() -> None:
@@ -315,4 +315,79 @@ def test_cli_passes_custom_directory_argument() -> None:
         patch("sys.argv", ["hurl-orchestra", "/tmp/tests"]),
     ):
         main()
-    mock.assert_called_once_with("/tmp/tests")
+    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[])
+
+
+def test_cli_passes_specific_hurl_files() -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("sys.argv", ["hurl-orchestra", "a.hurl", "b.hurl"]),
+    ):
+        main()
+    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[])
+
+
+def test_cli_forwards_extra_hurl_args_with_directory() -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose"]),
+    ):
+        main()
+    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"])
+
+
+def test_cli_forwards_extra_hurl_args_with_files() -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock,
+        patch("sys.argv", ["hurl-orchestra", "test.hurl", "--variable", "x=y"]),
+    ):
+        main()
+    mock.assert_called_once_with(files=["test.hurl"], extra_hurl_args=["--variable", "x=y"])
+
+
+# ── specific files mode ───────────────────────────────────────────────────────
+
+
+def test_specific_files_only_runs_given_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    hurl_file(tmp_path / "pong.hurl", id="pong")
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(files=[str(tmp_path / "ping.hurl")])
+    out = capsys.readouterr().out
+    assert "SUCCESS: ping" in out
+    assert "pong" not in out
+
+
+def test_extra_hurl_args_forwarded_to_subprocess(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), extra_hurl_args=["--verbose", "--variable", "x=y"])
+
+    assert "--verbose" in cmds[0]
+    assert "--variable" in cmds[0]
+    assert "x=y" in cmds[0]
+
+
+def test_specific_files_env_file_resolved_from_parent(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("base_url=https://example.com")
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    captured: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        captured.extend(cmd)
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(files=[str(tmp_path / "ping.hurl")])
+
+    assert "--variables-file" in captured
+    assert str(tmp_path / ".env") in captured

@@ -74,8 +74,30 @@ HTTP 200
 ## 3. Running
 
 ```bash
-hurl-orchestra              # runs against the current directory
-hurl-orchestra ./tests      # runs against a specific directory
+hurl-orchestra                          # runs against the current directory
+hurl-orchestra ./tests                  # runs against a specific directory
+hurl-orchestra auth.hurl profile.hurl   # run specific files only
+```
+
+### Passing Hurl Flags
+
+Any flag that Hurl itself accepts can be passed directly and it will be forwarded to every invocation:
+
+```bash
+hurl-orchestra ./tests --verbose
+hurl-orchestra ./tests --variable host=localhost --retry 3
+hurl-orchestra auth.hurl profile.hurl --variable env=staging
+```
+
+This works the same as calling `hurl` with those flags — the orchestrator passes them through verbatim.
+
+### Running Specific Files
+
+When you pass `.hurl` files directly, the orchestrator still respects their `deps`, `outputs`, and all other frontmatter — only the file discovery step changes. Files you list are the only ones loaded as templates, so any `deps` they declare must also be among the files you pass.
+
+```bash
+# Runs auth.hurl first (because profile.hurl depends on it), then profile.hurl
+hurl-orchestra auth.hurl profile.hurl
 ```
 
 ---

@@ -51,6 +51,7 @@ def run_step(
     shared_vars: dict[str, Any],
     graph: dict[str, set[str]],
     global_args: list[str],
+    extra_hurl_args: list[str],
 ) -> bool:
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
 
@@ -62,6 +63,7 @@ def run_step(
         "hurl",
         "--test",
         *global_args,
+        *extra_hurl_args,
         node["path"],
         "--report-json",
         str(report_path),
@@ -87,21 +89,35 @@ def run_step(
         report_path.unlink(missing_ok=True)
 
 
-def run_hurl_orchestrator(test_dir_str: str = ".") -> None:
-    """Discover, order, and execute all ``.hurl`` files in *test_dir_str*.
+def run_hurl_orchestrator(
+    test_dir_str: str = ".",
+    *,
+    files: list[str] | None = None,
+    extra_hurl_args: list[str] | None = None,
+) -> None:
+    """Discover, order, and execute ``.hurl`` files in dependency order.
 
-    Files are executed in topological dependency order.  Execution halts on the
-    first failure to avoid cascade failures in downstream nodes.
+    When *files* is provided those specific files are used instead of scanning
+    *test_dir_str*.  Any *extra_hurl_args* are forwarded verbatim to every hurl
+    invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
     """
     test_dir = Path(test_dir_str)
     templates: dict[str, dict[str, Any]] = {}
     nodes: dict[str, dict[str, Any]] = {}
     graph: dict[str, set[str]] = {}
     shared_vars: dict[str, Any] = {}
+    extra = extra_hurl_args or []
+
+    if files is not None:
+        hurl_paths: list[Path] = [Path(f) for f in files]
+        if hurl_paths:
+            test_dir = hurl_paths[0].parent
+    else:
+        hurl_paths = sorted(test_dir.glob("*.hurl"))
 
     global_args = get_global_args(test_dir)
 
-    for path in sorted(test_dir.glob("*.hurl")):
+    for path in hurl_paths:
         with path.open() as f:
             post = frontmatter.load(f)
             t_id: str = post.get("id", path.stem)
@@ -128,7 +144,7 @@ def run_hurl_orchestrator(test_dir_str: str = ".") -> None:
     try:
         order = list(TopologicalSorter(graph).static_order())
         for node_id in order:
-            if not run_step(node_id, nodes[node_id], shared_vars, graph, global_args):
+            if not run_step(node_id, nodes[node_id], shared_vars, graph, global_args, extra):
                 break
     except CycleError as e:
         print(f"Circular dependency: {e}")
