@@ -61,14 +61,11 @@ def run_step(
     """
     report_path = Path(f"{node_id}_report.json")
 
-    # Pass the frontmatter-stripped content via stdin ("-") so hurl never sees
-    # the YAML header and no temp file is written to disk.
     cmd = [
         "hurl",
         "--test",
         *global_args,
         *extra_hurl_args,
-        "-",
         "--report-json",
         str(report_path),
     ]
