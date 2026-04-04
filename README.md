@@ -119,6 +119,41 @@ GET /admin
 Authorization: {{admin_login.token}}
 ```
 
+### Execution Priority
+
+By default, nodes at the same dependency level run in an unspecified order. Use `priority` to control that order without adding artificial dependencies.
+
+| Value | Effect |
+|-------|--------|
+| positive (e.g. `2`) | runs **earlier** than nodes with lower or no priority |
+| `0` (default) | neutral |
+| negative (e.g. `-1`) | runs **later** than neutral nodes |
+
+**Example**: you have a `create`, a `search`, and a `delete` that are all independent. Without priority they could run in any order — if `delete` runs first it breaks `search`.
+
+```yaml
+---
+id: create
+priority: 1   # runs first
+---
+```
+
+```yaml
+---
+id: search
+# priority defaults to 0
+---
+```
+
+```yaml
+---
+id: delete
+priority: -1  # runs last
+---
+```
+
+Priority only affects ordering **within** the same wave. It never overrides actual `deps` — a node always waits for its dependencies regardless of its priority value.
+
 ### Global Environment (`.env`)
 
 The orchestrator automatically detects a `.env` file in the test directory. Variables defined here are available to **all** Hurl files without being declared in the frontmatter.
@@ -138,7 +173,8 @@ When you run `hurl-orchestra`, the tool performs the following steps:
 2. **Graph Construction**: Builds an execution map. If you used an alias, it "clones" that template into a unique node.
 3. **Validation**: Ensures there are no circular dependencies (e.g., A depends on B, and B depends on A).
 4. **Execution**:
-   * Runs tests in the exact order required.
+   * Processes nodes wave by wave — each wave contains all nodes whose dependencies are satisfied.
+   * Within each wave, nodes are sorted by `priority` (highest first).
    * Captures output variables into a shared pool.
    * Injects required variables into downstream tests via Hurl's `--variable` flag.
    * **Stops immediately** if any test fails to prevent cascade failures.
