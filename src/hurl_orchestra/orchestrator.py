@@ -1,6 +1,7 @@
 """Core orchestration logic for hurl-orchestra."""
 
 import json
+import shutil
 import subprocess
 from collections.abc import Iterator
 from graphlib import CycleError, TopologicalSorter
@@ -101,6 +102,10 @@ def run_hurl_orchestrator(
     *test_dir_str*.  Any *extra_hurl_args* are forwarded verbatim to every hurl
     invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
     """
+    if shutil.which("hurl") is None:
+        print("ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev")
+        return
+
     test_dir = Path(test_dir_str)
     templates: dict[str, dict[str, Any]] = {}
     nodes: dict[str, dict[str, Any]] = {}

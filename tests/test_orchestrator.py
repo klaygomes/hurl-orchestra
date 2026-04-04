@@ -61,6 +61,27 @@ def writing_report(data: dict) -> object:
     return _run
 
 
+# ── hurl availability ─────────────────────────────────────────────────────────
+
+
+def test_missing_hurl_binary_prints_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with patch("shutil.which", return_value=None):
+        run_hurl_orchestrator(str(tmp_path))
+    out = capsys.readouterr().out
+    assert "ERROR" in out
+    assert "hurl" in out
+
+
+def test_missing_hurl_binary_makes_no_subprocess_calls(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with patch("shutil.which", return_value=None), patch("subprocess.run") as mock:
+        run_hurl_orchestrator(str(tmp_path))
+    mock.assert_not_called()
+
+
 # ── basic execution ───────────────────────────────────────────────────────────
 
 
