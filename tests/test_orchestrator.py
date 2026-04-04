@@ -131,9 +131,9 @@ def test_dependency_executes_before_dependent(tmp_path: Path) -> None:
     order: list[str] = []
 
     def track(cmd: list[str], **kw: object) -> CompletedProcess[str]:
-        for part in cmd:
-            if part.endswith(".hurl"):
-                order.append(Path(part).stem)
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                order.append(cmd[i + 1].replace("_report.json", ""))
         return ok()
 
     with patch("subprocess.run", side_effect=track):
@@ -188,7 +188,7 @@ def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
     with patch("subprocess.run", side_effect=fake_run):
         run_hurl_orchestrator(str(tmp_path))
 
-    profile_cmd = next(c for c in cmds if "profile.hurl" in str(c))
+    profile_cmd = next(c for c in cmds if "profile_report.json" in str(c))
     assert "--variable" in profile_cmd
     assert "auth.token=abc123" in profile_cmd
 
@@ -210,7 +210,7 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
     with patch("subprocess.run", side_effect=fake_run):
         run_hurl_orchestrator(str(tmp_path))
 
-    profile_cmd = next(c for c in cmds if "profile.hurl" in str(c))
+    profile_cmd = next(c for c in cmds if "profile_report.json" in str(c))
     assert "auth.token=secret" not in " ".join(profile_cmd)
 
 

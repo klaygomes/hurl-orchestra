@@ -60,12 +60,15 @@ def run_step(
     The temporary JSON report file is always cleaned up after execution.
     """
     report_path = Path(f"{node_id}_report.json")
+
+    # Pass the frontmatter-stripped content via stdin ("-") so hurl never sees
+    # the YAML header and no temp file is written to disk.
     cmd = [
         "hurl",
         "--test",
         *global_args,
         *extra_hurl_args,
-        node["path"],
+        "-",
         "--report-json",
         str(report_path),
     ]
@@ -76,7 +79,13 @@ def run_step(
                 cmd.extend(["--variable", f"{var_key}={value}"])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            cmd,
+            input=node["content"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         if result.returncode != 0:
             print(f"FAILED: {node_id}\n{result.stderr}")
             return False
@@ -128,6 +137,7 @@ def run_hurl_orchestrator(
             t_id: str = post.get("id", path.stem)
             templates[t_id] = {
                 "path": str(path),
+                "content": post.content,
                 "outputs": post.get("outputs", []),
                 "deps": post.get("deps", []),
                 "priority": int(post.get("priority", 0)),
