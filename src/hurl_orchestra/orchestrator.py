@@ -144,7 +144,9 @@ def run_hurl_orchestrator(
     try:
         order = list(TopologicalSorter(graph).static_order())
         for node_id in order:
-            if not run_step(node_id, nodes[node_id], shared_vars, graph, global_args, extra):
+            if not run_step(
+                node_id, nodes[node_id], shared_vars, graph, global_args, extra
+            ):
                 break
     except CycleError as e:
         print(f"Circular dependency: {e}")
