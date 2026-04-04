@@ -130,6 +130,7 @@ def run_hurl_orchestrator(
                 "path": str(path),
                 "outputs": post.get("outputs", []),
                 "deps": post.get("deps", []),
+                "priority": int(post.get("priority", 0)),
             }
 
     for t_id, data in templates.items():
@@ -147,11 +148,20 @@ def run_hurl_orchestrator(
                 graph[t_id].add(dep)
 
     try:
-        order = list(TopologicalSorter(graph).static_order())
-        for node_id in order:
-            if not run_step(
-                node_id, nodes[node_id], shared_vars, graph, global_args, extra
-            ):
-                break
+        sorter = TopologicalSorter(graph)
+        sorter.prepare()
+        while sorter.is_active():
+            wave = sorted(
+                sorter.get_ready(),
+                key=lambda nid: nodes[nid]["priority"],
+                reverse=True,
+            )
+            for node_id in wave:
+                success = run_step(
+                    node_id, nodes[node_id], shared_vars, graph, global_args, extra
+                )
+                sorter.done(node_id)
+                if not success:
+                    return
     except CycleError as e:
         print(f"Circular dependency: {e}")

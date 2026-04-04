@@ -22,6 +22,7 @@ def hurl_file(
     id: str | None = None,
     outputs: list[str] | None = None,
     deps: list | None = None,
+    priority: int | None = None,
 ) -> None:
     """Write a .hurl file with optional YAML frontmatter."""
     lines: list[str] = []
@@ -37,6 +38,8 @@ def hurl_file(
                     lines.append(f"  - {k}: {v}")
             else:
                 lines.append(f"  - {dep}")
+    if priority is not None:
+        lines.append(f"priority: {priority}")
     content = ("---\n" + "\n".join(lines) + "\n---\n") if lines else ""
     path.write_text(content)
 
@@ -316,6 +319,52 @@ def test_alias_name_matching_template_id_does_not_duplicate_node(
         run_hurl_orchestrator(str(tmp_path))
 
     assert capsys.readouterr().out.count("SUCCESS: auth") == 1
+
+
+# ── priority ─────────────────────────────────────────────────────────────────
+
+
+def test_positive_priority_runs_before_default_in_same_wave(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Both are independent (no deps). "low" is alphabetically first but has no
+    # priority; "high" has priority=1 so it must run first.
+    hurl_file(tmp_path / "aaa.hurl", id="low")
+    hurl_file(tmp_path / "zzz.hurl", id="high", priority=1)
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert out.index("SUCCESS: high") < out.index("SUCCESS: low")
+
+
+def test_negative_priority_runs_after_default_in_same_wave(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # "last" is alphabetically first but priority=-1 so it must run last.
+    hurl_file(tmp_path / "aaa.hurl", id="last", priority=-1)
+    hurl_file(tmp_path / "zzz.hurl", id="first")
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert out.index("SUCCESS: first") < out.index("SUCCESS: last")
+
+
+def test_priority_does_not_override_deps(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # "consumer" has priority=10 but still must wait for "producer" (its dep).
+    hurl_file(tmp_path / "producer.hurl", id="producer")
+    hurl_file(tmp_path / "consumer.hurl", id="consumer", deps=["producer"], priority=10)
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert out.index("SUCCESS: producer") < out.index("SUCCESS: consumer")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
