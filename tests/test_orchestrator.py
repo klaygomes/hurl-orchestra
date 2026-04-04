@@ -191,7 +191,7 @@ def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
 
     profile_cmd = next(c for c in cmds if "profile_report.json" in str(c))
     assert "--variable" in profile_cmd
-    assert "auth.token=abc123" in profile_cmd
+    assert "auth_token=abc123" in profile_cmd
 
 
 def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> None:
@@ -212,7 +212,7 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
         run_hurl_orchestrator(str(tmp_path))
 
     profile_cmd = next(c for c in cmds if "profile_report.json" in str(c))
-    assert "auth.token=secret" not in " ".join(profile_cmd)
+    assert "auth_token=secret" not in " ".join(profile_cmd)
 
 
 def test_corrupted_report_json_is_silently_ignored(

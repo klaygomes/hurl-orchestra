@@ -5,7 +5,7 @@ A dependency-aware task runner for [Hurl](https://hurl.dev). It allows you to tr
 ## Core Philosophy
 
 * **Explicit over Implicit**: Every dependency must be declared. This ensures that if a test fails, you know exactly which parent requirement was not met.
-* **Namespaced Variables**: Outputs are tied to the ID of the node that produced them (`auth.token`), preventing variable collisions in large suites.
+* **Namespaced Variables**: Outputs are tied to the ID of the node that produced them (`auth_token`), preventing variable collisions in large suites.
 * **Reusable Logic**: Run the same Hurl file multiple times with different identities (e.g., `admin_login` vs `user_login`) using the alias syntax.
 
 ---
@@ -57,7 +57,7 @@ HTTP 200
 
 ### The Consumer (`profile.hurl`)
 
-List the `id` of the producer in `deps`. Access the variable using the `id.variable` syntax.
+List the `id` of the producer in `deps`. Access the variable using the `{id}_{variable}` syntax.
 
 ```yaml
 ---
@@ -65,7 +65,7 @@ id: get_profile
 deps: [auth]
 ---
 GET https://api.com/profile
-Authorization: Bearer {{auth.token}}
+Authorization: Bearer {{auth_token}}
 HTTP 200
 ```
 
@@ -116,7 +116,7 @@ deps:
   - auth: user_login   # Runs auth.hurl as "user_login"
 ---
 GET /admin
-Authorization: {{admin_login.token}}
+Authorization: {{admin_login_token}}
 ```
 
 ### Execution Priority

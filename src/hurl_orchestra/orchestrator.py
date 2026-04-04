@@ -73,7 +73,7 @@ def run_step(
     for dep_id in graph.get(node_id, set()):
         for var_key, value in shared_vars.items():
             if var_key.startswith(f"{dep_id}."):
-                cmd.extend(["--variable", f"{var_key}={value}"])
+                cmd.extend(["--variable", f"{var_key.replace('.', '_')}={value}"])
 
     try:
         result = subprocess.run(
