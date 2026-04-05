@@ -171,7 +171,7 @@ def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
 
-    report = [{"entries": [{"response": {"captures": [{"name": "token", "value": "abc123"}]}}]}]
+    report = [{"entries": [{"captures": [{"name": "token", "value": "abc123"}]}]}]
     cmds: list[list[str]] = []
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
@@ -193,7 +193,7 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=[])  # token not declared
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
 
-    report = [{"entries": [{"response": {"captures": [{"name": "token", "value": "secret"}]}}]}]
+    report = [{"entries": [{"captures": [{"name": "token", "value": "secret"}]}]}]
     cmds: list[list[str]] = []
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
@@ -248,7 +248,7 @@ def test_success_shows_captured_variables(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
-    report = [{"entries": [{"response": {"captures": [{"name": "token", "value": "abc"}]}}]}]
+    report = [{"entries": [{"captures": [{"name": "token", "value": "abc"}]}]}]
 
     with patch("subprocess.run", side_effect=writing_report(report)):
         run_hurl_orchestrator(str(tmp_path))
@@ -261,7 +261,7 @@ def test_success_shows_injected_variables(
 ) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
-    report = [{"entries": [{"response": {"captures": [{"name": "token", "value": "abc"}]}}]}]
+    report = [{"entries": [{"captures": [{"name": "token", "value": "abc"}]}]}]
 
     call_count = 0
 

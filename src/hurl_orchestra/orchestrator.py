@@ -34,8 +34,7 @@ def extract_captures(
     file_results = report_data if isinstance(report_data, list) else [report_data]
     for file_result in file_results:
         for entry in file_result.get("entries", []):
-            captures = entry.get("response", {}).get("captures", [])
-            for cap in captures:
+            for cap in entry.get("captures", []):
                 name, value = cap.get("name"), cap.get("value")
                 if name in target_outputs:
                     yield name, value
