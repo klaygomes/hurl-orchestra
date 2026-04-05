@@ -74,11 +74,11 @@ A `.hurl` file consists of:
 * Optional YAML frontmatter wrapped in `---` markers
 * The Hurl request and assertions body
 
-Required frontmatter fields:
+Common frontmatter fields:
 
-* `id` — unique node name for this test
-* `outputs` — list of capture names this test publishes
-* `deps` — list of upstream node IDs or alias definitions
+* `id` — unique node name for this test; defaults to the file stem when omitted
+* `outputs` — list of capture names this test publishes; optional
+* `deps` — list of upstream node IDs or alias definitions; optional
 * `priority` — optional integer that influences ordering within a ready wave
 
 Example file structure:
