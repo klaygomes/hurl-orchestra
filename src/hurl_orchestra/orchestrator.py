@@ -31,12 +31,14 @@ def extract_captures(
             outputs = ", ".join(target_outputs)
             print(f"WARNING: {node_id}: invalid report JSON; [{outputs}] not captured")
             return
-    for entry in report_data.get("entries", []):
-        captures = entry.get("response", {}).get("captures", [])
-        for cap in captures:
-            name, value = cap.get("name"), cap.get("value")
-            if name in target_outputs:
-                yield name, value
+    file_results = report_data if isinstance(report_data, list) else [report_data]
+    for file_result in file_results:
+        for entry in file_result.get("entries", []):
+            captures = entry.get("response", {}).get("captures", [])
+            for cap in captures:
+                name, value = cap.get("name"), cap.get("value")
+                if name in target_outputs:
+                    yield name, value
 
 
 def get_global_args(test_dir: Path) -> list[str]:
