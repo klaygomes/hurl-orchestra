@@ -1,38 +1,42 @@
 """DAG visualisation — generates Mermaid diagrams from hurl-orchestra metadata.
 
-Mermaid references:
-  Sankey:    https://mermaid.js.org/syntax/sankey.html
+Mermaid reference:
   Flowchart: https://mermaid.js.org/syntax/flowchart.html
 """
 
 from __future__ import annotations
 
-import re
-import sys
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .orchestrator import _build_graph
+from .orchestrator import GraphError, build_graph
+
+_ESCAPE_MAP = str.maketrans(
+    {
+        "&": "&amp;",
+        '"': "&quot;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "[": "&#91;",
+        "]": "&#93;",
+        "\n": " ",
+        "\r": " ",
+    }
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_id_map(node_ids: Iterable[str]) -> dict[str, str]:
     """Map original node IDs to Mermaid-safe identifiers.
 
-    Only alphanumerics and underscores are valid in flowchart node IDs.
-    Collisions (e.g. ``auth-v2`` and ``auth_v2`` both mapping to ``auth_v2``)
-    are resolved by appending ``_1``, ``_2``, … to later occurrences.
+    Internal node IDs are opaque but guaranteed unique and Mermaid-safe.
     """
-    counts: dict[str, int] = {}
     result: dict[str, str] = {}
-    for nid in node_ids:
-        base = re.sub(r"[^A-Za-z0-9_]", "_", nid)
-        if base not in counts:
-            counts[base] = 0
-            result[nid] = base
-        else:
-            counts[base] += 1
-            result[nid] = f"{base}_{counts[base]}"
+    for index, nid in enumerate(sorted(node_ids)):
+        result[nid] = f"node_{index}"
     return result
 
 
@@ -41,90 +45,109 @@ def _node_label(node_id: str, node: dict[str, Any]) -> str:
 
     Format: ``id [out:N]`` or ``id [p:P, out:N]`` when priority is non-zero.
     """
-    out = len(node["outputs"])
-    priority = node["priority"]
+    outputs = node.get("outputs")
+    out = len(outputs) if isinstance(outputs, (list, tuple, set, dict)) else 0
+    priority_raw = node.get("priority") or 0
+    try:
+        priority = int(priority_raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Node '%s' has invalid priority '%s'. Defaulting to 0.",
+            node_id,
+            priority_raw,
+        )
+        priority = 0
+
+    safe_id = _escape_label(str(node_id))
     if priority != 0:
-        return f"{node_id} [p:{priority}, out:{out}]"
-    return f"{node_id} [out:{out}]"
+        return f"{safe_id} [p:{priority}, out:{out}]"
+    return f"{safe_id} [out:{out}]"
 
 
 def _escape_label(s: str) -> str:
-    return s.replace('"', "&quot;")
-
-
-def _csv_val(s: str) -> str:
-    if '"' in s or "," in s:
-        return '"' + s.replace('"', '""') + '"'
-    return s
+    return s.translate(_ESCAPE_MAP)
 
 
 def _render_flowchart(
     nodes: dict[str, dict[str, Any]],
     graph: dict[str, set[str]],
     safe_ids: dict[str, str],
+    orientation: str = "LR",
 ) -> str:
-    """Return a Mermaid ``flowchart TD`` block as a string."""
-    lines = ["flowchart TD"]
-    for node_id, node in nodes.items():
-        label = _escape_label(_node_label(node_id, node))
+    """Return a Mermaid flowchart block as a string."""
+    lines = [f"flowchart {orientation}"]
+    node_ids = sorted(nodes)
+    for node_id in node_ids:
+        label = _node_label(node_id, nodes[node_id])
         lines.append(f'    {safe_ids[node_id]}["{label}"]')
-    for node_id, deps in graph.items():
-        for dep_id in sorted(deps):
-            lines.append(f"    {safe_ids[dep_id]} --> {safe_ids[node_id]}")
+    for node_id in node_ids:
+        for dep_id in sorted(graph.get(node_id, [])):
+            dep_safe_id = safe_ids.get(dep_id)
+            if dep_safe_id is None:
+                raise GraphError(
+                    "Dangling dependency detected while rendering: "
+                    f"{dep_id} -> {node_id}"
+                )
+            lines.append(f"    {dep_safe_id} --> {safe_ids[node_id]}")
     return "\n".join(lines)
 
 
-def _render_sankey(
-    nodes: dict[str, dict[str, Any]],
-    graph: dict[str, set[str]],
-) -> str:
-    """Return a Mermaid ``sankey-beta`` block as a string.
-
-    Edge weight = number of outputs declared by the upstream node (min 1).
-    Isolated nodes (no edges) are omitted — Sankey requires source/target pairs.
-    """
-    lines = ["sankey-beta", ""]
-    for node_id, deps in graph.items():
-        for dep_id in sorted(deps):
-            weight = max(1, len(nodes[dep_id]["outputs"]))
-            lines.append(f"{_csv_val(dep_id)},{_csv_val(node_id)},{weight}")
-    return "\n".join(lines)
-
-
-def build_diagram(hurl_paths: list[Path]) -> str | None:
+def build_diagram(hurl_paths: list[Path], orientation: str = "LR") -> str:
     """Build the full Markdown diagram string from *hurl_paths*.
 
-    Returns ``None`` and prints an error if graph construction fails.
+    Raises ``GraphError`` if graph construction fails.
     """
-    result = _build_graph(hurl_paths)
-    if isinstance(result, str):
-        print(result)
-        return None
-    nodes, graph = result
+    nodes, graph = build_graph(hurl_paths)
 
     safe_ids = _safe_id_map(nodes.keys())
-    flowchart = _render_flowchart(nodes, graph, safe_ids)
-    sankey = _render_sankey(nodes, graph)
+    flowchart = _render_flowchart(nodes, graph, safe_ids, orientation)
 
     sections = [
         "# hurl-orchestra dependency diagram",
         f"## Flowchart\n\n```mermaid\n{flowchart}\n```",
-        f"## Sankey\n\n```mermaid\n{sankey}\n```",
         "_Generated by hurl-orchestra_",
     ]
     return "\n\n".join(sections) + "\n"
 
 
-def write_diagram(hurl_paths: list[Path], output: str = "diagram.md") -> bool:
+def write_diagram(
+    hurl_paths: list[Path],
+    output: str = "diagram.md",
+    overwrite: bool = False,
+) -> bool:
     """Generate the Mermaid diagram and write it to *output*.
 
     Pass ``'-'`` as *output* to write to stdout. Returns ``False`` on error.
     """
-    content = build_diagram(hurl_paths)
-    if content is None:
+    try:
+        content = build_diagram(hurl_paths)
+    except (GraphError, OSError) as exc:
+        logger.error("Diagram generation failed: %s", exc)
         return False
+
     if output == "-":
-        sys.stdout.write(content)
-    else:
-        Path(output).write_text(content)
+        try:
+            print(content, end="")
+        except BrokenPipeError:
+            return False
+        return True
+
+    output_path = Path(output)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        mode = "w" if overwrite else "x"
+        with output_path.open(mode=mode, encoding="utf-8") as output_file:
+            output_file.write(content)
+    except FileExistsError:
+        logger.error(
+            "Diagram output already exists and overwrite is disabled: %s",
+            output,
+        )
+        return False
+    except IsADirectoryError:
+        logger.error("Diagram output is a directory: %s", output)
+        return False
+    except OSError:
+        logger.exception("Failed to write diagram to %s", output)
+        return False
     return True

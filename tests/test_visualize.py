@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 from hurl_orchestra.visualize import (
-    _csv_val,
+    _escape_label,
     _node_label,
     _render_flowchart,
-    _render_sankey,
     _safe_id_map,
+    GraphError,
     build_diagram,
     write_diagram,
 )
@@ -49,18 +50,18 @@ def hurl_file(
 
 def test_safe_id_replaces_hyphens() -> None:
     m = _safe_id_map(["auth-v2"])
-    assert m["auth-v2"] == "auth_v2"
+    assert m["auth-v2"] == "node_0"
 
 
 def test_safe_id_preserves_alphanumeric_and_underscore() -> None:
     m = _safe_id_map(["my_node"])
-    assert m["my_node"] == "my_node"
+    assert m["my_node"] == "node_0"
 
 
-def test_safe_id_collision_gets_suffix() -> None:
+def test_safe_id_collision_gets_unique_nodes() -> None:
     m = _safe_id_map(["auth-v2", "auth_v2"])
-    assert m["auth-v2"] == "auth_v2"
-    assert m["auth_v2"] == "auth_v2_1"
+    assert m["auth-v2"] == "node_0"
+    assert m["auth_v2"] == "node_1"
 
 
 def test_safe_id_original_id_preserved_as_key() -> None:
@@ -85,20 +86,30 @@ def test_node_label_negative_priority() -> None:
     assert _node_label("cleanup", node) == "cleanup [p:-1, out:1]"
 
 
+def test_node_label_null_outputs_is_handled() -> None:
+    node = {"outputs": None, "priority": 0}
+    assert _node_label("auth", node) == "auth [out:0]"
 
 
-def test_csv_val_plain_string_unchanged() -> None:
-    assert _csv_val("auth") == "auth"
+def test_node_label_null_priority_is_treated_as_zero() -> None:
+    node = {"outputs": [], "priority": None}
+    assert _node_label("create", node) == "create [out:0]"
 
 
-def test_csv_val_comma_triggers_quoting() -> None:
-    assert _csv_val("a,b") == '"a,b"'
+def test_node_label_noniterable_outputs_is_treated_as_zero() -> None:
+    node = {"outputs": 42, "priority": 0}
+    assert _node_label("auth", node) == "auth [out:0]"
 
 
-def test_csv_val_double_quote_triggers_doubling() -> None:
-    assert _csv_val('a"b') == '"a""b"'
+def test_node_label_invalid_priority_defaults_to_zero(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    node = {"outputs": ["token"], "priority": "high"}
 
+    with caplog.at_level("WARNING"):
+        assert _node_label("auth", node) == "auth [out:1]"
 
+    assert "Node 'auth' has invalid priority 'high'. Defaulting to 0." in caplog.text
 
 
 def test_flowchart_includes_isolated_node(tmp_path: Path) -> None:
@@ -116,7 +127,7 @@ def test_flowchart_edge_direction_dep_to_dependent(tmp_path: Path) -> None:
     graph: dict[str, set[str]] = {"auth": set(), "profile": {"auth"}}
     safe_ids = _safe_id_map(nodes.keys())
     fc = _render_flowchart(nodes, graph, safe_ids)
-    assert "auth --> profile" in fc
+    assert "node_0 --> node_1" in fc
 
 
 def test_flowchart_label_includes_output_count(tmp_path: Path) -> None:
@@ -145,7 +156,7 @@ def test_flowchart_uses_safe_id_in_edge(tmp_path: Path) -> None:
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth-v2"])
     diagram = build_diagram(sorted(tmp_path.glob("*.hurl")))
     assert diagram is not None
-    assert "auth_v2 --> profile" in diagram
+    assert "node_0 --> node_1" in diagram
 
 
 def test_flowchart_preserves_original_id_in_label(tmp_path: Path) -> None:
@@ -155,47 +166,36 @@ def test_flowchart_preserves_original_id_in_label(tmp_path: Path) -> None:
     assert "auth-v2" in diagram
 
 
-
-
-def test_sankey_emits_edge_for_dependency(tmp_path: Path) -> None:
+def test_flowchart_emits_edge_for_dependency(tmp_path: Path) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
     diagram = build_diagram(sorted(tmp_path.glob("*.hurl")))
     assert diagram is not None
-    assert "auth,profile,1" in diagram
+    assert "node_0 --> node_1" in diagram
 
 
-def test_sankey_weight_equals_output_count(tmp_path: Path) -> None:
-    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["a", "b", "c"])
-    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
-    diagram = build_diagram(sorted(tmp_path.glob("*.hurl")))
-    assert diagram is not None
-    assert "auth,profile,3" in diagram
-
-
-def test_sankey_weight_floor_is_one_when_zero_outputs(tmp_path: Path) -> None:
-    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=[])
-    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
-    diagram = build_diagram(sorted(tmp_path.glob("*.hurl")))
-    assert diagram is not None
-    assert "auth,profile,1" in diagram
-
-
-def test_sankey_omits_isolated_node(tmp_path: Path) -> None:
+def test_flowchart_includes_isolated_node_when_rendering(tmp_path: Path) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
     nodes = {"ping": {"outputs": [], "priority": 0}}
     graph: dict[str, set[str]] = {"ping": set()}
-    sankey = _render_sankey(nodes, graph)
-    assert "ping" not in sankey.replace("sankey-beta", "")
+    flowchart = _render_flowchart(nodes, graph, _safe_id_map(nodes))
+    assert 'node_0["ping [out:0]"]' in flowchart
 
 
-def test_sankey_quotes_node_id_with_comma() -> None:
+def test_flowchart_quotes_node_label_with_comma() -> None:
     nodes = {"a,b": {"outputs": ["x"], "priority": 0}, "c": {"outputs": [], "priority": 0}}
     graph: dict[str, set[str]] = {"a,b": set(), "c": {"a,b"}}
-    sankey = _render_sankey(nodes, graph)
-    assert '"a,b",c,1' in sankey
+    safe_ids = _safe_id_map(nodes)
+    flowchart = _render_flowchart(nodes, graph, safe_ids)
+    assert f'{safe_ids["a,b"]}["a,b [out:1]"]' in flowchart
+    assert f'{safe_ids["a,b"]} --> {safe_ids["c"]}' in flowchart
 
 
+def test_render_flowchart_rejects_dangling_dependencies() -> None:
+    nodes = {"a": {"outputs": [], "priority": 0}}
+    graph: dict[str, set[str]] = {"a": {"missing"}}
+    with pytest.raises(GraphError, match="Dangling dependency detected"):
+        _render_flowchart(nodes, graph, _safe_id_map(nodes))
 
 
 def test_markdown_contains_flowchart_heading(tmp_path: Path) -> None:
@@ -205,18 +205,6 @@ def test_markdown_contains_flowchart_heading(tmp_path: Path) -> None:
     assert "## Flowchart" in diagram
 
 
-def test_markdown_contains_sankey_heading(tmp_path: Path) -> None:
-    hurl_file(tmp_path / "ping.hurl", id="ping")
-    diagram = build_diagram(sorted(tmp_path.glob("*.hurl")))
-    assert diagram is not None
-    assert "## Sankey" in diagram
-
-
-def test_markdown_flowchart_before_sankey(tmp_path: Path) -> None:
-    hurl_file(tmp_path / "ping.hurl", id="ping")
-    diagram = build_diagram(sorted(tmp_path.glob("*.hurl")))
-    assert diagram is not None
-    assert diagram.index("## Flowchart") < diagram.index("## Sankey")
 
 
 def test_markdown_contains_generator_footer(tmp_path: Path) -> None:
@@ -230,20 +218,30 @@ def test_empty_hurl_path_list_produces_diagram() -> None:
     diagram = build_diagram([])
     assert diagram is not None
     assert "## Flowchart" in diagram
-    assert "## Sankey" in diagram
+    assert "## Dependency graph" not in diagram
 
 
 
 
-def test_build_diagram_returns_none_on_missing_dep(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_build_diagram_raises_graph_error_on_missing_dep(tmp_path: Path) -> None:
     hurl_file(tmp_path / "a.hurl", id="a", deps=["nonexistent"])
-    result = build_diagram(sorted(tmp_path.glob("*.hurl")))
-    assert result is None
-    assert "ERROR" in capsys.readouterr().out
+    with pytest.raises(GraphError, match="nonexistent"):
+        build_diagram(sorted(tmp_path.glob("*.hurl")))
 
 
+def test_build_diagram_raises_graph_error_on_cycle(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", deps=["b"])
+    hurl_file(tmp_path / "b.hurl", id="b", deps=["a"])
+    with pytest.raises(GraphError, match="Circular dependency"):
+        build_diagram(sorted(tmp_path.glob("*.hurl")))
+
+
+def test_escape_label_quotes_and_brackets() -> None:
+    assert _escape_label('a"b[c]') == 'a&quot;b&#91;c&#93;'
+
+
+def test_escape_label_escapes_angle_brackets() -> None:
+    assert _escape_label("a<b>c") == "a&lt;b&gt;c"
 
 
 def test_write_diagram_creates_file(tmp_path: Path) -> None:
@@ -263,7 +261,52 @@ def test_write_diagram_stdout(
     assert "## Flowchart" in capsys.readouterr().out
 
 
+def test_write_diagram_handles_broken_pipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    class BrokenStdout:
+        def write(self, content: str) -> int:
+            raise BrokenPipeError
+
+        def flush(self) -> None:
+            return None
+
+    monkeypatch.setattr(sys, "stdout", BrokenStdout())
+    assert write_diagram(sorted(tmp_path.glob("*.hurl")), output="-") is False
+
+
 def test_write_diagram_returns_false_on_error(tmp_path: Path) -> None:
     hurl_file(tmp_path / "a.hurl", id="a", deps=["missing"])
     ok = write_diagram(sorted(tmp_path.glob("*.hurl")))
     assert ok is False
+
+
+def test_write_diagram_returns_false_on_missing_input_file(tmp_path: Path) -> None:
+    out = tmp_path / "out.md"
+    ok = write_diagram([tmp_path / "missing.hurl"], output=str(out))
+    assert ok is False
+
+
+def test_write_diagram_returns_false_when_output_is_directory(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    ok = write_diagram(sorted(tmp_path.glob("*.hurl")), output=str(tmp_path))
+    assert ok is False
+
+
+def test_write_diagram_refuses_existing_file_without_overwrite(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    out = tmp_path / "out.md"
+    out.write_text("existing")
+    ok = write_diagram(sorted(tmp_path.glob("*.hurl")), output=str(out))
+    assert ok is False
+
+
+def test_write_diagram_allows_existing_file_with_overwrite(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    out = tmp_path / "out.md"
+    out.write_text("existing")
+    ok = write_diagram(sorted(tmp_path.glob("*.hurl")), output=str(out), overwrite=True)
+    assert ok is True
+    assert "## Flowchart" in out.read_text()

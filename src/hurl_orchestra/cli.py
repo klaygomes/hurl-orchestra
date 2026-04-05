@@ -48,12 +48,21 @@ def main() -> None:
         metavar="FILE",
         help="Output file for the diagram (default: diagram.md). Use '-' for stdout.",
     )
+    parser.add_argument(
+        "--diagram-overwrite",
+        action="store_true",
+        help="Overwrite diagram output if it already exists.",
+    )
     args, extra_hurl_args = parser.parse_known_args()
 
     paths: list[str] = args.paths
 
     if args.diagram:
-        ok = write_diagram(_resolve_hurl_paths(paths), output=args.diagram_output)
+        ok = write_diagram(
+            _resolve_hurl_paths(paths),
+            output=args.diagram_output,
+            overwrite=args.diagram_overwrite,
+        )
     elif len(paths) == 1 and not paths[0].endswith(".hurl"):
         ok = run_hurl_orchestrator(
             paths[0], extra_hurl_args=extra_hurl_args, report_zip=args.report_zip
