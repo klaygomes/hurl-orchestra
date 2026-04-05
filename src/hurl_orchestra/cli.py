@@ -1,7 +1,16 @@
 import argparse
 import sys
+from pathlib import Path
 
 from .orchestrator import run_hurl_orchestrator
+from .visualize import write_diagram
+
+
+def _resolve_hurl_paths(paths: list[str]) -> list[Path]:
+    """Resolve CLI paths to a sorted list of .hurl files."""
+    if len(paths) == 1 and not paths[0].endswith(".hurl"):
+        return sorted(Path(paths[0]).glob("*.hurl"))
+    return [Path(p) for p in paths]
 
 
 def main() -> None:
@@ -25,10 +34,27 @@ def main() -> None:
         metavar="FILE",
         help="Save all hurl reports to this zip file (default: report.zip)",
     )
+    parser.add_argument(
+        "--diagram",
+        action="store_true",
+        help=(
+            "Generate a Mermaid diagram of the dependency graph"
+            " instead of running tests."
+        ),
+    )
+    parser.add_argument(
+        "--diagram-output",
+        default="diagram.md",
+        metavar="FILE",
+        help="Output file for the diagram (default: diagram.md). Use '-' for stdout.",
+    )
     args, extra_hurl_args = parser.parse_known_args()
 
     paths: list[str] = args.paths
-    if len(paths) == 1 and not paths[0].endswith(".hurl"):
+
+    if args.diagram:
+        ok = write_diagram(_resolve_hurl_paths(paths), output=args.diagram_output)
+    elif len(paths) == 1 and not paths[0].endswith(".hurl"):
         ok = run_hurl_orchestrator(
             paths[0], extra_hurl_args=extra_hurl_args, report_zip=args.report_zip
         )

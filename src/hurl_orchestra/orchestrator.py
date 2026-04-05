@@ -166,6 +166,55 @@ def _validate_graph(
     return None
 
 
+def _build_graph(
+    hurl_paths: list[Path],
+) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]] | str:
+    """Parse .hurl frontmatter and build (nodes, graph).
+
+    Returns an error string on failure (alias template not found or missing dep).
+    """
+    templates: dict[str, dict[str, Any]] = {}
+    nodes: dict[str, dict[str, Any]] = {}
+    graph: dict[str, set[str]] = {}
+
+    for path in hurl_paths:
+        with path.open() as f:
+            post = frontmatter.load(f)
+            t_id: str = post.get("id", path.stem)
+            templates[t_id] = {
+                "path": str(path),
+                "content": post.content,
+                "outputs": post.get("outputs", []),
+                "deps": post.get("deps", []),
+                "priority": int(post.get("priority", 0)),
+            }
+
+    for t_id, data in templates.items():
+        if t_id not in nodes:
+            nodes[t_id] = data.copy()
+            graph[t_id] = set()
+        for dep in data["deps"]:
+            if isinstance(dep, dict):
+                for template_name, instance_name in dep.items():
+                    if template_name not in templates:
+                        return (
+                            f"ERROR: '{t_id}': alias template '{template_name}'"
+                            f" not found (used as '{instance_name}')"
+                        )
+                    if instance_name not in nodes:
+                        nodes[instance_name] = templates[template_name].copy()
+                        graph[instance_name] = set(templates[template_name]["deps"])
+                    graph[t_id].add(instance_name)
+            else:
+                graph[t_id].add(dep)
+
+    error = _validate_graph(nodes, graph)
+    if error:
+        return error
+
+    return nodes, graph
+
+
 def run_hurl_orchestrator(
     test_dir_str: str = ".",
     *,
@@ -188,9 +237,6 @@ def run_hurl_orchestrator(
         return False
 
     test_dir = Path(test_dir_str)
-    templates: dict[str, dict[str, Any]] = {}
-    nodes: dict[str, dict[str, Any]] = {}
-    graph: dict[str, set[str]] = {}
     shared_vars: dict[str, Any] = {}
     extra = extra_hurl_args or []
 
@@ -203,42 +249,11 @@ def run_hurl_orchestrator(
 
     global_args = get_global_args(test_dir)
 
-    for path in hurl_paths:
-        with path.open() as f:
-            post = frontmatter.load(f)
-            t_id: str = post.get("id", path.stem)
-            templates[t_id] = {
-                "path": str(path),
-                "content": post.content,
-                "outputs": post.get("outputs", []),
-                "deps": post.get("deps", []),
-                "priority": int(post.get("priority", 0)),
-            }
-
-    for t_id, data in templates.items():
-        if t_id not in nodes:
-            nodes[t_id] = data.copy()
-            graph[t_id] = set()
-        for dep in data["deps"]:
-            if isinstance(dep, dict):
-                for template_name, instance_name in dep.items():
-                    if template_name not in templates:
-                        print(
-                            f"ERROR: '{t_id}': alias template '{template_name}'"
-                            f" not found (used as '{instance_name}')"
-                        )
-                        return False
-                    if instance_name not in nodes:
-                        nodes[instance_name] = templates[template_name].copy()
-                        graph[instance_name] = set(templates[template_name]["deps"])
-                    graph[t_id].add(instance_name)
-            else:
-                graph[t_id].add(dep)
-
-    error = _validate_graph(nodes, graph)
-    if error:
-        print(error)
+    result = _build_graph(hurl_paths)
+    if isinstance(result, str):
+        print(result)
         return False
+    nodes, graph = result
 
     with tempfile.TemporaryDirectory() as reports_root:
         try:

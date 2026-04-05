@@ -621,3 +621,37 @@ def test_cli_report_zip_custom_name() -> None:
     ):
         main()
     assert mock.call_args.kwargs["report_zip"] == "run.zip"
+
+
+# ── CLI --diagram flag ────────────────────────────────────────────────────────
+
+
+def test_cli_diagram_flag_calls_write_diagram(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.write_diagram", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--diagram", str(tmp_path)]),
+    ):
+        main()
+    mock.assert_called_once()
+
+
+def test_cli_diagram_custom_output(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.write_diagram", return_value=True) as mock,
+        patch(
+            "sys.argv",
+            ["hurl-orchestra", "--diagram", "--diagram-output", "out.md", str(tmp_path)],
+        ),
+    ):
+        main()
+    assert mock.call_args.kwargs["output"] == "out.md"
+
+
+def test_cli_diagram_does_not_call_run_orchestrator(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.write_diagram", return_value=True),
+        patch("hurl_orchestra.cli.run_hurl_orchestrator") as mock_run,
+        patch("sys.argv", ["hurl-orchestra", "--diagram", str(tmp_path)]),
+    ):
+        main()
+    mock_run.assert_not_called()
