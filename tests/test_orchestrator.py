@@ -53,12 +53,12 @@ def fail(stderr: str = "assertion failed") -> CompletedProcess[str]:
 
 
 def writing_report(data: dict) -> object:
-    """Return a subprocess.run side_effect that writes *data* to the report file."""
+    """Return a subprocess.run side_effect that writes *data* to the report directory."""
 
     def _run(cmd: list[str], **kwargs: object) -> CompletedProcess[str]:
         for i, part in enumerate(cmd):
             if part == "--report-json":
-                Path(cmd[i + 1]).write_text(json.dumps(data))
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(data))
         return ok()
 
     return _run
@@ -125,22 +125,17 @@ def test_empty_directory_makes_no_subprocess_calls(tmp_path: Path) -> None:
 # ── dependency ordering ───────────────────────────────────────────────────────
 
 
-def test_dependency_executes_before_dependent(tmp_path: Path) -> None:
+def test_dependency_executes_before_dependent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth")
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
 
-    order: list[str] = []
-
-    def track(cmd: list[str], **kw: object) -> CompletedProcess[str]:
-        for i, part in enumerate(cmd):
-            if part == "--report-json":
-                order.append(Path(cmd[i + 1]).name.replace("_report.json", ""))
-        return ok()
-
-    with patch("subprocess.run", side_effect=track):
+    with patch("subprocess.run", return_value=ok()):
         run_hurl_orchestrator(str(tmp_path))
 
-    assert order.index("auth") < order.index("profile")
+    out = capsys.readouterr().out
+    assert out.index("SUCCESS: auth") < out.index("SUCCESS: profile")
 
 
 def test_failure_stops_downstream_execution(
@@ -183,13 +178,13 @@ def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
         cmds.append(list(cmd))
         for i, part in enumerate(cmd):
             if part == "--report-json":
-                Path(cmd[i + 1]).write_text(json.dumps(report))
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
         return ok()
 
     with patch("subprocess.run", side_effect=fake_run):
         run_hurl_orchestrator(str(tmp_path))
 
-    profile_cmd = next(c for c in cmds if "profile_report.json" in str(c))
+    profile_cmd = cmds[1]
     assert "--variable" in profile_cmd
     assert "auth_token=abc123" in profile_cmd
 
@@ -205,13 +200,13 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
         cmds.append(list(cmd))
         for i, part in enumerate(cmd):
             if part == "--report-json":
-                Path(cmd[i + 1]).write_text(json.dumps(report))
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
         return ok()
 
     with patch("subprocess.run", side_effect=fake_run):
         run_hurl_orchestrator(str(tmp_path))
 
-    profile_cmd = next(c for c in cmds if "profile_report.json" in str(c))
+    profile_cmd = cmds[1]
     assert "auth_token=secret" not in " ".join(profile_cmd)
 
 
@@ -223,7 +218,7 @@ def test_corrupted_report_json_prints_warning(
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
         for i, part in enumerate(cmd):
             if part == "--report-json":
-                Path(cmd[i + 1]).write_text("{not valid json")
+                (Path(cmd[i + 1]) / "report.json").write_text("{not valid json")
         return ok()
 
     with patch("subprocess.run", side_effect=fake_run):
@@ -268,10 +263,14 @@ def test_success_shows_injected_variables(
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
     report = {"entries": [{"response": {"captures": [{"name": "token", "value": "abc"}]}}]}
 
+    call_count = 0
+
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        nonlocal call_count
+        call_count += 1
         for i, part in enumerate(cmd):
-            if part == "--report-json" and "auth_report" in cmd[i + 1]:
-                Path(cmd[i + 1]).write_text(json.dumps(report))
+            if part == "--report-json" and call_count == 1:
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
         return ok()
 
     with patch("subprocess.run", side_effect=fake_run):
