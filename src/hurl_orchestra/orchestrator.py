@@ -138,7 +138,12 @@ def _execute(
             node_report_dir = reports_path / node_id
             node_report_dir.mkdir()
             success = run_step(
-                node_id, nodes[node_id], shared_vars, graph, global_args, extra,
+                node_id,
+                nodes[node_id],
+                shared_vars,
+                graph,
+                global_args,
+                extra,
                 node_report_dir,
             )
             sorter.done(node_id)
