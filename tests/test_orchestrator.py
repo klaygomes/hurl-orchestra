@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from graphlib import CycleError
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
@@ -190,6 +192,211 @@ def test_missing_alias_template_prints_error(
 
 
 
+def test_null_outputs_are_treated_as_empty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "auth.hurl").write_text(
+        "---\nid: auth\noutputs: null\n---\nGET https://example.com\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "SUCCESS: auth" in out
+
+
+def test_null_deps_are_treated_as_empty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "auth.hurl").write_text(
+        "---\nid: auth\ndeps: null\n---\nGET https://example.com\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "SUCCESS: auth" in out
+
+
+def test_invalid_dep_dict_length_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\ndeps:\n  - {x: y, z: w}\n---\nGET https://example.com\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "single-key dicts" in out
+
+
+def test_invalid_dep_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\ndeps:\n  - 123\n---\nGET https://example.com\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "must contain strings or dicts" in out
+
+
+def test_invalid_priority_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\npriority: high\n---\nGET https://example.com\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "must be an integer" in out
+
+
+def test_invalid_outputs_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\noutputs: 123\n---\nGET https://example.com\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "outputs for 'a' must be a list" in out
+
+
+def test_invalid_deps_not_list_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\ndeps: 123\n---\nGET https://example.com\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "deps for 'a' must be a list" in out
+
+
+def test_empty_node_id_fails_validation(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "ping.hurl").write_text("---\nid: ''\n---\nGET https://example.com\n")
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "must be a non-empty string" in out
+
+
+def test_direct_capture_report_structure_is_supported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                (Path(cmd[i + 1]) / "report.json").write_text(
+                    json.dumps({"captures": [{"name": "token", "value": "abc"}]})
+                )
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "captured: token" in out
+    assert "SUCCESS: profile" in out
+
+
+def test_duplicate_capture_warnings_are_printed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                (Path(cmd[i + 1]) / "report.json").write_text(
+                    json.dumps(
+                        {
+                            "entries": [
+                                {"captures": [{"name": "token", "value": "first"}]},
+                                {"captures": [{"name": "token", "value": "second"}]},
+                            ]
+                        }
+                    )
+                )
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "WARNING: auth: output 'token' overwritten by entry 0" in out
+    assert "SUCCESS: auth" in out
+
+
+def test_timeout_during_execution_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd="hurl", timeout=300)
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "Hurl timed out after 300 seconds" in out
+
+
+def test_internal_execution_exception_is_handled(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        raise RuntimeError("boom")
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "FAILED: ping" in out
+    assert "boom" in out
+
+
+def test_alias_template_string_deps_are_instantiated(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    hurl_file(tmp_path / "producer.hurl", id="producer")
+    hurl_file(tmp_path / "base.hurl", id="base", deps=["producer"])
+    hurl_file(tmp_path / "auth.hurl", id="auth", deps=[{"base": "shared_base"}])
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "SUCCESS: producer" in out
+    assert "SUCCESS: shared_base" in out
+    assert "SUCCESS: auth" in out
+
+
+def test_execute_cycle_error_is_caught(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    with patch("shutil.which", return_value="/usr/bin/hurl"), patch(
+        "hurl_orchestra.orchestrator._execute",
+        side_effect=CycleError("cycle detected"),
+    ):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "Circular dependency" in out
+
+
 def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
@@ -233,7 +440,7 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
     assert "auth_token=secret" not in " ".join(profile_cmd)
 
 
-def test_corrupted_report_json_prints_warning(
+def test_corrupted_report_json_fails(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
@@ -245,26 +452,52 @@ def test_corrupted_report_json_prints_warning(
         return ok()
 
     with patch("subprocess.run", side_effect=fake_run):
-        run_hurl_orchestrator(str(tmp_path))
+        result = run_hurl_orchestrator(str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "SUCCESS: auth" in out
-    assert "WARNING" in out
+    assert result is False
+    assert "FAILED: auth" in out
+    assert "ERROR" in out
     assert "token" in out
 
 
-def test_missing_report_prints_warning(
+def test_missing_report_fails(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
 
     with patch("subprocess.run", return_value=ok()):
-        run_hurl_orchestrator(str(tmp_path))
+        result = run_hurl_orchestrator(str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "SUCCESS: auth" in out
-    assert "WARNING" in out
+    assert result is False
+    assert "FAILED: auth" in out
+    assert "ERROR" in out
     assert "token" in out
+
+
+def test_independent_failures_do_not_stop_other_ready_nodes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a")
+    hurl_file(tmp_path / "b.hurl", id="b")
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                report_dir = Path(cmd[i + 1])
+                if report_dir.name == "a":
+                    return fail("broken")
+                return ok()
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "FAILED: a" in out
+    assert "SUCCESS: b" in out
 
 
 def test_success_shows_captured_variables(
@@ -357,7 +590,7 @@ def test_no_env_file_omits_variables_file_arg(tmp_path: Path) -> None:
 def test_alias_runs_same_template_under_different_names(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "auth.hurl", id="auth")
     hurl_file(
         tmp_path / "dual.hurl",
         id="dual",
@@ -370,6 +603,44 @@ def test_alias_runs_same_template_under_different_names(
     out = capsys.readouterr().out
     assert "SUCCESS: admin_login" in out
     assert "SUCCESS: user_login" in out
+
+
+def test_build_graph_rejects_invalid_node_identifiers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="bad id")
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "ERROR" in out
+    assert "bad id" in out
+
+
+def test_alias_nested_template_dependencies_are_instantiated(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "base.hurl", id="base")
+    hurl_file(
+        tmp_path / "auth.hurl",
+        id="auth",
+        deps=[{"base": "shared_base"}],
+    )
+    hurl_file(
+        tmp_path / "consumer.hurl",
+        id="consumer",
+        deps=[{"auth": "auth_alias"}],
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "SUCCESS: shared_base" in out
+    assert "SUCCESS: auth_alias" in out
+    assert "SUCCESS: consumer" in out
 
 
 def test_shared_alias_referenced_by_two_consumers_runs_once(

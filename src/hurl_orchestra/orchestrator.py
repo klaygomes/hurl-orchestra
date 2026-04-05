@@ -1,10 +1,11 @@
 """Core orchestration logic for hurl-orchestra."""
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any
@@ -12,32 +13,137 @@ from typing import Any
 import frontmatter
 
 
+class GraphError(Exception):
+    """Raised when graph construction or validation fails."""
+
+
+MAX_WORKERS = min(32, (os.cpu_count() or 1) + 4)
+
+
+def _validate_identifier(value: Any, description: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise GraphError(
+            f"ERROR: {description} must be a non-empty string; got {value!r}"
+        )
+    if any(ch.isspace() for ch in value):
+        raise GraphError(
+            f"ERROR: {description} must not contain whitespace; got {value!r}"
+        )
+    return value
+
+
+def _sanitize_hurl_variable_part(value: str) -> str:
+    if not value:
+        raise ValueError("Hurl variable part must be a non-empty string")
+    return "".join(
+        ch if ch.isalnum() or ch == "_" else f"_{ord(ch):02x}_" for ch in value
+    )
+
+
+def _hurl_variable_name(dep_id: str, output_name: str) -> str:
+    return (
+        f"{_sanitize_hurl_variable_part(dep_id)}_"
+        f"{_sanitize_hurl_variable_part(output_name)}"
+    )
+
+
+def _parse_outputs(outputs: Any, t_id: str) -> list[str]:
+    if outputs is None:
+        return []
+    if not isinstance(outputs, list):
+        raise GraphError(
+            f"ERROR: outputs for '{t_id}' must be a list; got {type(outputs).__name__}"
+        )
+    for output_name in outputs:
+        _validate_identifier(output_name, f"output name for node '{t_id}'")
+    return outputs
+
+
+def _parse_deps(deps: Any, t_id: str) -> list[Any]:
+    if deps is None:
+        return []
+    if not isinstance(deps, list):
+        raise GraphError(
+            f"ERROR: deps for '{t_id}' must be a list; got {type(deps).__name__}"
+        )
+
+    validated: list[Any] = []
+    for dep in deps:
+        if isinstance(dep, dict):
+            if len(dep) != 1:
+                raise GraphError(
+                    "ERROR: deps for "
+                    f"'{t_id}' must be a list of strings or single-key dicts"
+                )
+            for template_name, instance_name in dep.items():
+                _validate_identifier(
+                    template_name,
+                    f"alias template name for node '{t_id}'",
+                )
+                _validate_identifier(
+                    instance_name,
+                    f"alias instance name for node '{t_id}'",
+                )
+        elif isinstance(dep, str):
+            _validate_identifier(dep, f"dependency id for node '{t_id}'")
+        else:
+            raise GraphError(
+                f"ERROR: deps for '{t_id}' must contain strings or dicts; "
+                f"got {type(dep).__name__}"
+            )
+        validated.append(dep)
+    return validated
+
+
+def _parse_priority(priority_value: Any, t_id: str) -> int:
+    try:
+        return int(priority_value)
+    except (TypeError, ValueError) as err:
+        raise GraphError(
+            f"ERROR: priority for '{t_id}' must be an integer; got {priority_value!r}"
+        ) from err
+
+
 def extract_captures(
     report_path: Path, target_outputs: list[str], node_id: str = ""
-) -> Iterator[tuple[str, Any]]:
-    """Yield ``(name, value)`` pairs captured in a Hurl JSON report.
+) -> dict[str, Any]:
+    """Return captured values from a Hurl JSON report.
 
-    Only names present in *target_outputs* are yielded.
+    Only names present in *target_outputs* are returned.
     """
     if not report_path.exists():
         if target_outputs:
             outputs = ", ".join(target_outputs)
-            print(f"WARNING: {node_id}: report not found; [{outputs}] not captured")
-        return
+            print(f"ERROR: {node_id}: report not found; [{outputs}] not captured")
+        return {}
     with report_path.open() as rf:
         try:
             report_data = json.load(rf)
         except json.JSONDecodeError:
             outputs = ", ".join(target_outputs)
-            print(f"WARNING: {node_id}: invalid report JSON; [{outputs}] not captured")
-            return
+            print(f"ERROR: {node_id}: invalid report JSON; [{outputs}] not captured")
+            return {}
     file_results = report_data if isinstance(report_data, list) else [report_data]
-    for file_result in file_results:
-        for entry in file_result.get("entries", []):
-            for cap in entry.get("captures", []):
-                name, value = cap.get("name"), cap.get("value")
+    captures: dict[str, Any] = {}
+    for entry_index, entry in enumerate(file_results):
+        entries = entry.get("entries")
+        if isinstance(entries, list):
+            search_targets = entries
+        else:
+            search_targets = [entry]
+
+        for target in search_targets:
+            for cap in target.get("captures", []):
+                name = cap.get("name")
                 if name in target_outputs:
-                    yield name, value
+                    if name in captures:
+                        message = (
+                            f"WARNING: {node_id}: output '{name}' "
+                            f"overwritten by entry {entry_index}"
+                        )
+                        print(message)
+                    captures[name] = cap.get("value")
+    return captures
 
 
 def get_global_args(test_dir: Path) -> list[str]:
@@ -55,15 +161,16 @@ def get_global_args(test_dir: Path) -> list[str]:
 def run_step(
     node_id: str,
     node: dict[str, Any],
-    shared_vars: dict[str, Any],
+    shared_vars: dict[str, dict[str, Any]],
     graph: dict[str, set[str]],
     global_args: list[str],
     extra_hurl_args: list[str],
     node_report_dir: Path,
-) -> bool:
+) -> tuple[bool, str, dict[str, Any]]:
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
 
-    Returns ``True`` on success, ``False`` if the hurl process exits non-zero.
+    Returns ``(success, message, captured_outputs)`` where the caller can
+    update shared state.
     """
     injected: list[str] = []
     report_file = node_report_dir / "report.json"
@@ -77,46 +184,59 @@ def run_step(
     ]
 
     for dep_id in graph.get(node_id, set()):
-        for var_key, value in shared_vars.items():
-            if var_key.startswith(f"{dep_id}."):
-                hurl_name = var_key.replace(".", "_")
-                cmd.extend(["--variable", f"{hurl_name}={value}"])
-                injected.append(hurl_name)
+        for var_key, value in shared_vars.get(dep_id, {}).items():
+            hurl_name = _hurl_variable_name(dep_id, var_key)
+            cmd.extend(["--variable", f"{hurl_name}={value}"])
+            injected.append(hurl_name)
 
-    result = subprocess.run(
-        cmd,
-        input=node["content"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(Path(node["path"]).parent),
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            input=node["content"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=300,
+            cwd=str(Path(node["path"]).parent),
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            False,
+            f"FAILED: {node_id}\nHurl timed out after 300 seconds\n",
+            {},
+        )
+
     if result.returncode != 0:
-        print(f"FAILED: {node_id}\n{result.stderr}")
-        return False
+        return (False, f"FAILED: {node_id}\n{result.stderr}", {})
 
-    captured: list[str] = []
-    for name, value in extract_captures(report_file, node["outputs"], node_id):
-        shared_vars[f"{node_id}.{name}"] = value
-        captured.append(name)
+    captures = extract_captures(report_file, node.get("outputs", []), node_id)
+    outputs: list[str] = node.get("outputs") or []
+    missed = [o for o in outputs if o not in captures]
+    if missed:
+        actual = ", ".join(sorted(captures.keys())) or "none"
+        return (
+            False,
+            (
+                f"FAILED: {node_id}\nMissing expected outputs: {', '.join(missed)}; "
+                f"reported outputs: {actual}\n"
+            ),
+            {},
+        )
 
-    missed = [o for o in node["outputs"] if o not in captured]
     parts: list[str] = []
     if injected:
         parts.append(f"injected: {', '.join(injected)}")
-    if captured:
-        parts.append(f"captured: {', '.join(captured)}")
-    if missed:
-        parts.append(f"NOT captured: {', '.join(missed)}")
+    if captures:
+        parts.append(f"captured: {', '.join(captures)}")
     suffix = f" [{' | '.join(parts)}]" if parts else ""
-    print(f"SUCCESS: {node_id}{suffix}")
-    return True
+    return (True, f"SUCCESS: {node_id}{suffix}\n", captures)
 
 
 def _execute(
     nodes: dict[str, dict[str, Any]],
     graph: dict[str, set[str]],
-    shared_vars: dict[str, Any],
+    shared_vars: dict[str, dict[str, Any]],
     global_args: list[str],
     extra: list[str],
     reports_path: Path,
@@ -128,51 +248,129 @@ def _execute(
     """
     sorter = TopologicalSorter(graph)
     sorter.prepare()
-    while sorter.is_active():
-        wave = sorted(
-            sorter.get_ready(),
-            key=lambda nid: nodes[nid]["priority"],
-            reverse=True,
-        )
-        for node_id in wave:
-            node_report_dir = reports_path / node_id
-            node_report_dir.mkdir()
-            success = run_step(
-                node_id,
-                nodes[node_id],
-                shared_vars,
-                graph,
-                global_args,
-                extra,
-                node_report_dir,
+    failed_nodes: set[str] = set()
+    overall_success = True
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        while sorter.is_active():
+            ready = sorted(
+                sorter.get_ready(),
+                key=lambda nid: nodes[nid]["priority"],
+                reverse=True,
             )
-            sorter.done(node_id)
-            if not success:
-                return False
+            to_run: list[str] = []
+            for node_id in ready:
+                if any(dep in failed_nodes for dep in graph.get(node_id, set())):
+                    failed_nodes.add(node_id)
+                    sorter.done(node_id)
+                else:
+                    to_run.append(node_id)
+
+            if not to_run:
+                continue
+
+            for node_id in to_run:
+                (reports_path / node_id).mkdir(parents=True, exist_ok=True)
+
+            priorities = sorted(
+                {nodes[nid]["priority"] for nid in to_run}, reverse=True
+            )
+            for priority in priorities:
+                group = [nid for nid in to_run if nodes[nid]["priority"] == priority]
+                futures = {
+                    executor.submit(
+                        run_step,
+                        node_id,
+                        nodes[node_id],
+                        shared_vars,
+                        graph,
+                        global_args,
+                        extra,
+                        reports_path / node_id,
+                    ): node_id
+                    for node_id in group
+                }
+                results: dict[str, tuple[bool, str, dict[str, Any]]] = {}
+                for future in futures:
+                    node_id = futures[future]
+                    try:
+                        results[node_id] = future.result()
+                    except Exception as exc:
+                        results[node_id] = (
+                            False,
+                            f"FAILED: {node_id}\n{exc}\n",
+                            {},
+                        )
+
+                for node_id in group:
+                    success, message, captured = results[node_id]
+                    print(message, end="")
+                    if not success:
+                        overall_success = False
+                        failed_nodes.add(node_id)
+                    else:
+                        if captured:
+                            shared_vars[node_id] = captured
+                    sorter.done(node_id)
+    return overall_success
     return True
 
 
 def _validate_graph(
     nodes: dict[str, dict[str, Any]], graph: dict[str, set[str]]
-) -> str | None:
-    """Return an error message if any dependency is missing from *nodes*, else None."""
+) -> None:
+    """Validate the built graph and raise GraphError on invalid structure."""
     for t_id, deps in graph.items():
         for dep_id in deps:
             if dep_id not in nodes:
-                return (
+                raise GraphError(
                     f"ERROR: '{t_id}' depends on '{dep_id}'"
                     f" but no .hurl file or alias defines id: {dep_id}"
                 )
-    return None
+
+    try:
+        sorter = TopologicalSorter(graph)
+        sorter.prepare()
+    except CycleError as exc:
+        raise GraphError(f"Circular dependency detected: {exc}") from exc
 
 
-def _build_graph(
+def _instantiate_template(
+    template_name: str,
+    instance_name: str,
+    templates: dict[str, dict[str, Any]],
+    nodes: dict[str, dict[str, Any]],
+    graph: dict[str, set[str]],
+) -> None:
+    if template_name not in templates:
+        raise GraphError(
+            "ERROR: alias template '"
+            f"{template_name}' not found (used as '{instance_name}')"
+        )
+    if instance_name in nodes:
+        return
+
+    data = templates[template_name].copy()
+    nodes[instance_name] = data
+    graph[instance_name] = set()
+    for dep in data["deps"]:
+        if isinstance(dep, dict):
+            for template_name, dep_instance_name in dep.items():
+                _instantiate_template(
+                    template_name,
+                    dep_instance_name,
+                    templates,
+                    nodes,
+                    graph,
+                )
+                graph[instance_name].add(dep_instance_name)
+        else:
+            graph[instance_name].add(dep)
+
+
+def build_graph(
     hurl_paths: list[Path],
-) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]] | str:
-    """Parse .hurl frontmatter and build (nodes, graph).
-
-    Returns an error string on failure (alias template not found or missing dep).
-    """
+) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
+    """Parse .hurl frontmatter and build (nodes, graph)."""
     templates: dict[str, dict[str, Any]] = {}
     nodes: dict[str, dict[str, Any]] = {}
     graph: dict[str, set[str]] = {}
@@ -180,13 +378,20 @@ def _build_graph(
     for path in hurl_paths:
         with path.open() as f:
             post = frontmatter.load(f)
-            t_id: str = post.get("id", path.stem)
+            t_id = _validate_identifier(
+                post.get("id", path.stem),
+                f"node id for {path.name}",
+            )
+            outputs = _parse_outputs(post.get("outputs", []), t_id)
+            deps = _parse_deps(post.get("deps", []), t_id)
+            priority = _parse_priority(post.get("priority", 0), t_id)
+
             templates[t_id] = {
                 "path": str(path),
                 "content": post.content,
-                "outputs": post.get("outputs", []),
-                "deps": post.get("deps", []),
-                "priority": int(post.get("priority", 0)),
+                "outputs": outputs,
+                "deps": deps,
+                "priority": priority,
             }
 
     for t_id, data in templates.items():
@@ -196,22 +401,18 @@ def _build_graph(
         for dep in data["deps"]:
             if isinstance(dep, dict):
                 for template_name, instance_name in dep.items():
-                    if template_name not in templates:
-                        return (
-                            f"ERROR: '{t_id}': alias template '{template_name}'"
-                            f" not found (used as '{instance_name}')"
-                        )
-                    if instance_name not in nodes:
-                        nodes[instance_name] = templates[template_name].copy()
-                        graph[instance_name] = set(templates[template_name]["deps"])
+                    _instantiate_template(
+                        template_name,
+                        instance_name,
+                        templates,
+                        nodes,
+                        graph,
+                    )
                     graph[t_id].add(instance_name)
             else:
                 graph[t_id].add(dep)
 
-    error = _validate_graph(nodes, graph)
-    if error:
-        return error
-
+    _validate_graph(nodes, graph)
     return nodes, graph
 
 
@@ -237,7 +438,7 @@ def run_hurl_orchestrator(
         return False
 
     test_dir = Path(test_dir_str)
-    shared_vars: dict[str, Any] = {}
+    shared_vars: dict[str, dict[str, Any]] = {}
     extra = extra_hurl_args or []
 
     if files is not None:
@@ -249,11 +450,11 @@ def run_hurl_orchestrator(
 
     global_args = get_global_args(test_dir)
 
-    result = _build_graph(hurl_paths)
-    if isinstance(result, str):
-        print(result)
+    try:
+        nodes, graph = build_graph(hurl_paths)
+    except GraphError as exc:
+        print(exc)
         return False
-    nodes, graph = result
 
     with tempfile.TemporaryDirectory() as reports_root:
         try:
