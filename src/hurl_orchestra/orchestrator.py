@@ -3,6 +3,7 @@
 import json
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Iterator
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
@@ -61,28 +62,26 @@ def run_step(
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
 
     Returns ``True`` on success, ``False`` if the hurl process exits non-zero.
-    The temporary JSON report file is always cleaned up after execution.
     """
-    report_path = Path(f"{node_id}_report.json").resolve()
-
-    cmd = [
-        "hurl",
-        "--test",
-        *global_args,
-        *extra_hurl_args,
-        "--report-json",
-        str(report_path),
-    ]
-
     injected: list[str] = []
-    for dep_id in graph.get(node_id, set()):
-        for var_key, value in shared_vars.items():
-            if var_key.startswith(f"{dep_id}."):
-                hurl_name = var_key.replace(".", "_")
-                cmd.extend(["--variable", f"{hurl_name}={value}"])
-                injected.append(hurl_name)
+    with tempfile.TemporaryDirectory() as report_dir:
+        report_file = Path(report_dir) / "report.json"
+        cmd = [
+            "hurl",
+            "--test",
+            *global_args,
+            *extra_hurl_args,
+            "--report-json",
+            report_dir,
+        ]
 
-    try:
+        for dep_id in graph.get(node_id, set()):
+            for var_key, value in shared_vars.items():
+                if var_key.startswith(f"{dep_id}."):
+                    hurl_name = var_key.replace(".", "_")
+                    cmd.extend(["--variable", f"{hurl_name}={value}"])
+                    injected.append(hurl_name)
+
         result = subprocess.run(
             cmd,
             input=node["content"],
@@ -96,20 +95,18 @@ def run_step(
             return False
 
         captured: list[str] = []
-        for name, value in extract_captures(report_path, node["outputs"], node_id):
+        for name, value in extract_captures(report_file, node["outputs"], node_id):
             shared_vars[f"{node_id}.{name}"] = value
             captured.append(name)
 
-        parts: list[str] = []
-        if injected:
-            parts.append(f"injected: {', '.join(injected)}")
-        if captured:
-            parts.append(f"captured: {', '.join(captured)}")
-        suffix = f" [{' | '.join(parts)}]" if parts else ""
-        print(f"SUCCESS: {node_id}{suffix}")
-        return True
-    finally:
-        report_path.unlink(missing_ok=True)
+    parts: list[str] = []
+    if injected:
+        parts.append(f"injected: {', '.join(injected)}")
+    if captured:
+        parts.append(f"captured: {', '.join(captured)}")
+    suffix = f" [{' | '.join(parts)}]" if parts else ""
+    print(f"SUCCESS: {node_id}{suffix}")
+    return True
 
 
 def run_hurl_orchestrator(
