@@ -100,11 +100,14 @@ def run_step(
             shared_vars[f"{node_id}.{name}"] = value
             captured.append(name)
 
+    missed = [o for o in node["outputs"] if o not in captured]
     parts: list[str] = []
     if injected:
         parts.append(f"injected: {', '.join(injected)}")
     if captured:
         parts.append(f"captured: {', '.join(captured)}")
+    if missed:
+        parts.append(f"NOT captured: {', '.join(missed)}")
     suffix = f" [{' | '.join(parts)}]" if parts else ""
     print(f"SUCCESS: {node_id}{suffix}")
     return True
