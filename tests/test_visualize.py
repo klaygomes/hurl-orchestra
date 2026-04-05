@@ -45,7 +45,6 @@ def hurl_file(
     path.write_text(content)
 
 
-# ── _safe_id_map ──────────────────────────────────────────────────────────────
 
 
 def test_safe_id_replaces_hyphens() -> None:
@@ -69,7 +68,6 @@ def test_safe_id_original_id_preserved_as_key() -> None:
     assert "auth-v2" in m
 
 
-# ── _node_label ───────────────────────────────────────────────────────────────
 
 
 def test_node_label_zero_priority_shows_out_count() -> None:
@@ -87,7 +85,6 @@ def test_node_label_negative_priority() -> None:
     assert _node_label("cleanup", node) == "cleanup [p:-1, out:1]"
 
 
-# ── _csv_val ──────────────────────────────────────────────────────────────────
 
 
 def test_csv_val_plain_string_unchanged() -> None:
@@ -102,7 +99,6 @@ def test_csv_val_double_quote_triggers_doubling() -> None:
     assert _csv_val('a"b') == '"a""b"'
 
 
-# ── _render_flowchart ─────────────────────────────────────────────────────────
 
 
 def test_flowchart_includes_isolated_node(tmp_path: Path) -> None:
@@ -159,7 +155,6 @@ def test_flowchart_preserves_original_id_in_label(tmp_path: Path) -> None:
     assert "auth-v2" in diagram
 
 
-# ── _render_sankey ────────────────────────────────────────────────────────────
 
 
 def test_sankey_emits_edge_for_dependency(tmp_path: Path) -> None:
@@ -201,7 +196,6 @@ def test_sankey_quotes_node_id_with_comma() -> None:
     assert '"a,b",c,1' in sankey
 
 
-# ── Markdown structure ────────────────────────────────────────────────────────
 
 
 def test_markdown_contains_flowchart_heading(tmp_path: Path) -> None:
@@ -239,7 +233,6 @@ def test_empty_hurl_path_list_produces_diagram() -> None:
     assert "## Sankey" in diagram
 
 
-# ── build_diagram error handling ──────────────────────────────────────────────
 
 
 def test_build_diagram_returns_none_on_missing_dep(
@@ -251,7 +244,6 @@ def test_build_diagram_returns_none_on_missing_dep(
     assert "ERROR" in capsys.readouterr().out
 
 
-# ── write_diagram I/O ─────────────────────────────────────────────────────────
 
 
 def test_write_diagram_creates_file(tmp_path: Path) -> None:

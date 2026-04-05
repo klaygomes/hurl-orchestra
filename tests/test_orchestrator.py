@@ -13,7 +13,6 @@ from hurl_orchestra import run_hurl_orchestrator
 from hurl_orchestra.cli import main
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
 
 
 def hurl_file(
@@ -64,7 +63,6 @@ def writing_report(data: dict) -> object:
     return _run
 
 
-# ── hurl availability ─────────────────────────────────────────────────────────
 
 
 def test_missing_hurl_binary_prints_error(
@@ -86,7 +84,6 @@ def test_missing_hurl_binary_makes_no_subprocess_calls(tmp_path: Path) -> None:
     mock.assert_not_called()
 
 
-# ── basic execution ───────────────────────────────────────────────────────────
 
 
 def test_single_step_success(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -122,7 +119,6 @@ def test_empty_directory_makes_no_subprocess_calls(tmp_path: Path) -> None:
     mock.assert_not_called()
 
 
-# ── dependency ordering ───────────────────────────────────────────────────────
 
 
 def test_dependency_executes_before_dependent(
@@ -192,7 +188,6 @@ def test_missing_alias_template_prints_error(
     assert "nonexistent_template" in out
 
 
-# ── variable capture and passing ──────────────────────────────────────────────
 
 
 def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
@@ -307,7 +302,6 @@ def test_success_shows_injected_variables(
     assert "injected: auth_token" in capsys.readouterr().out
 
 
-# ── working directory ─────────────────────────────────────────────────────────
 
 
 def test_subprocess_cwd_set_to_test_directory(tmp_path: Path) -> None:
@@ -324,7 +318,6 @@ def test_subprocess_cwd_set_to_test_directory(tmp_path: Path) -> None:
     assert captured_kwargs[0]["cwd"] == str(tmp_path)
 
 
-# ── environment file ──────────────────────────────────────────────────────────
 
 
 def test_env_file_passed_via_variables_file(tmp_path: Path) -> None:
@@ -359,7 +352,6 @@ def test_no_env_file_omits_variables_file_arg(tmp_path: Path) -> None:
     assert "--variables-file" not in captured
 
 
-# ── alias / template reuse ────────────────────────────────────────────────────
 
 
 def test_alias_runs_same_template_under_different_names(
@@ -414,7 +406,6 @@ def test_alias_name_matching_template_id_does_not_duplicate_node(
     assert capsys.readouterr().out.count("SUCCESS: auth") == 1
 
 
-# ── priority ─────────────────────────────────────────────────────────────────
 
 
 def test_positive_priority_runs_before_default_in_same_wave(
@@ -460,7 +451,6 @@ def test_priority_does_not_override_deps(
     assert out.index("SUCCESS: producer") < out.index("SUCCESS: consumer")
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
 
 
 def test_cli_defaults_to_current_directory() -> None:
@@ -528,7 +518,6 @@ def test_cli_exits_with_code_0_on_success(tmp_path: Path) -> None:
         main()  # must not raise
 
 
-# ── specific files mode ───────────────────────────────────────────────────────
 
 
 def test_specific_files_only_runs_given_files(
@@ -576,7 +565,6 @@ def test_specific_files_env_file_resolved_from_parent(tmp_path: Path) -> None:
     assert str(tmp_path / ".env") in captured
 
 
-# ── report zip ────────────────────────────────────────────────────────────────
 
 
 def test_report_zip_created_with_default_name(tmp_path: Path) -> None:
@@ -623,7 +611,6 @@ def test_cli_report_zip_custom_name() -> None:
     assert mock.call_args.kwargs["report_zip"] == "run.zip"
 
 
-# ── CLI --diagram flag ────────────────────────────────────────────────────────
 
 
 def test_cli_diagram_flag_calls_write_diagram(tmp_path: Path) -> None:
