@@ -2,6 +2,33 @@
 
 A dependency-aware task runner for [Hurl](https://hurl.dev). It allows you to treat API requests as a Directed Acyclic Graph (DAG), managing complex authentication flows and resource creation without redundant executions or manual variable passing.
 
+## Getting Started
+
+Install the package and verify that `hurl` is available on your `PATH`.
+
+```bash
+pip install hurl-orchestra
+hurl --version
+```
+
+Run the orchestrator from the current directory:
+
+```bash
+hurl-orchestra
+```
+
+Or point it at a specific test folder:
+
+```bash
+hurl-orchestra ./tests
+```
+
+For a quick diagram of your DAG instead of execution, use:
+
+```bash
+hurl-orchestra --diagram ./tests
+```
+
 ## Core Philosophy
 
 * **Explicit over Implicit**: Every dependency must be declared. This ensures that if a test fails, you know exactly which parent requirement was not met.
@@ -39,6 +66,47 @@ tests/
 ## 2. Defining Hurl Files
 
 Each `.hurl` file uses YAML frontmatter to define its place in the graph.
+
+### Creating and formatting a `.hurl` file
+
+A `.hurl` file consists of:
+
+* Optional YAML frontmatter wrapped in `---` markers
+* The Hurl request and assertions body
+
+Required frontmatter fields:
+
+* `id` — unique node name for this test
+* `outputs` — list of capture names this test publishes
+* `deps` — list of upstream node IDs or alias definitions
+* `priority` — optional integer that influences ordering within a ready wave
+
+Example file structure:
+
+```yaml
+---
+id: my_test
+outputs: [token, session_id]
+deps: [auth]
+priority: 1
+---
+GET https://api.example.com/resource
+Authorization: Bearer {{auth_token}}
+HTTP 200
+```
+
+Aliases let you reuse the same template under multiple names and run each alias separately:
+
+```yaml
+---
+id: admin_flow
+deps:
+  - auth: admin_login
+  - auth: user_login
+---
+GET https://api.example.com/admin
+Authorization: Bearer {{admin_login_token}}
+```
 
 ### The Producer (`auth.hurl`)
 
