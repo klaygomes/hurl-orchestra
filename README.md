@@ -120,6 +120,21 @@ The zip is written even if the run fails, so partial results are preserved for d
 hurl-orchestra ./tests --report-zip ci-run.zip
 ```
 
+### Visualising the DAG
+
+Pass `--diagram` to generate a Markdown file with two Mermaid diagrams instead of running tests:
+
+```bash
+hurl-orchestra --diagram ./tests                      # writes diagram.md
+hurl-orchestra --diagram ./tests --diagram-output pipeline.md
+hurl-orchestra --diagram auth.hurl profile.hurl --diagram-output -  # stdout
+```
+
+The output file contains:
+
+- **Flowchart** — all nodes with edges showing dependency direction. Node labels include the output count and, when non-zero, the priority.
+- **Sankey** — weighted data-flow diagram. Edge weight equals the number of outputs the upstream node produces (minimum 1). Isolated nodes (no dependencies and no dependents) appear only in the flowchart.
+
 ---
 
 ## 4. Advanced Features
