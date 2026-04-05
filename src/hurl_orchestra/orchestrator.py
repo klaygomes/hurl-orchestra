@@ -152,6 +152,20 @@ def _execute(
     return True
 
 
+def _validate_graph(
+    nodes: dict[str, dict[str, Any]], graph: dict[str, set[str]]
+) -> str | None:
+    """Return an error message if any dependency is missing from *nodes*, else None."""
+    for t_id, deps in graph.items():
+        for dep_id in deps:
+            if dep_id not in nodes:
+                return (
+                    f"ERROR: '{t_id}' depends on '{dep_id}'"
+                    f" but no .hurl file or alias defines id: {dep_id}"
+                )
+    return None
+
+
 def run_hurl_orchestrator(
     test_dir_str: str = ".",
     *,
@@ -208,12 +222,23 @@ def run_hurl_orchestrator(
         for dep in data["deps"]:
             if isinstance(dep, dict):
                 for template_name, instance_name in dep.items():
+                    if template_name not in templates:
+                        print(
+                            f"ERROR: '{t_id}': alias template '{template_name}'"
+                            f" not found (used as '{instance_name}')"
+                        )
+                        return False
                     if instance_name not in nodes:
                         nodes[instance_name] = templates[template_name].copy()
                         graph[instance_name] = set(templates[template_name]["deps"])
                     graph[t_id].add(instance_name)
             else:
                 graph[t_id].add(dep)
+
+    error = _validate_graph(nodes, graph)
+    if error:
+        print(error)
+        return False
 
     with tempfile.TemporaryDirectory() as reports_root:
         try:

@@ -164,6 +164,34 @@ def test_circular_dependency_prints_error(
     assert "Circular dependency" in capsys.readouterr().out
 
 
+def test_missing_string_dep_prints_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", deps=["nonexistent"])
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "ERROR" in out
+    assert "nonexistent" in out
+
+
+def test_missing_alias_template_prints_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", deps=[{"nonexistent_template": "my_alias"}])
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "ERROR" in out
+    assert "nonexistent_template" in out
+
+
 # ── variable capture and passing ──────────────────────────────────────────────
 
 

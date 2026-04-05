@@ -100,6 +100,26 @@ When you pass `.hurl` files directly, the orchestrator still respects their `dep
 hurl-orchestra auth.hurl profile.hurl
 ```
 
+### Reports
+
+After every run, the orchestrator writes a zip archive containing the raw hurl JSON reports for every node that executed. Each node gets its own subdirectory inside the zip, named after its ID.
+
+```
+report.zip
+├── auth/
+│   ├── report.json
+│   └── store/
+└── create_user/
+    ├── report.json
+    └── store/
+```
+
+The zip is written even if the run fails, so partial results are preserved for debugging. Use `--report-zip` to change the output filename:
+
+```bash
+hurl-orchestra ./tests --report-zip ci-run.zip
+```
+
 ---
 
 ## 4. Advanced Features
