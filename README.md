@@ -95,6 +95,8 @@ This works the same as calling `hurl` with those flags — the orchestrator pass
 
 When you pass `.hurl` files directly, the orchestrator still respects their `deps`, `outputs`, and all other frontmatter — only the file discovery step changes. Files you list are the only ones loaded as templates, so any `deps` they declare must also be among the files you pass.
 
+If the diagram output file already exists, use `--diagram-overwrite` to replace it.
+
 ```bash
 # Runs auth.hurl first (because profile.hurl depends on it), then profile.hurl
 hurl-orchestra auth.hurl profile.hurl
@@ -122,18 +124,18 @@ hurl-orchestra ./tests --report-zip ci-run.zip
 
 ### Visualising the DAG
 
-Pass `--diagram` to generate a Markdown file with two Mermaid diagrams instead of running tests:
+Pass `--diagram` to generate a Markdown file with a Mermaid flowchart instead of running tests:
 
 ```bash
 hurl-orchestra --diagram ./tests                      # writes diagram.md
 hurl-orchestra --diagram ./tests --diagram-output pipeline.md
 hurl-orchestra --diagram auth.hurl profile.hurl --diagram-output -  # stdout
+hurl-orchestra --diagram ./tests --diagram-output diagram.md --diagram-overwrite
 ```
 
 The output file contains:
 
 - **Flowchart** — all nodes with edges showing dependency direction. Node labels include the output count and, when non-zero, the priority.
-- **Sankey** — weighted data-flow diagram. Edge weight equals the number of outputs the upstream node produces (minimum 1). Isolated nodes (no dependencies and no dependents) appear only in the flowchart.
 
 ---
 
