@@ -59,46 +59,46 @@ def run_step(
     graph: dict[str, set[str]],
     global_args: list[str],
     extra_hurl_args: list[str],
+    node_report_dir: Path,
 ) -> bool:
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
 
     Returns ``True`` on success, ``False`` if the hurl process exits non-zero.
     """
     injected: list[str] = []
-    with tempfile.TemporaryDirectory() as report_dir:
-        report_file = Path(report_dir) / "report.json"
-        cmd = [
-            "hurl",
-            "--test",
-            *global_args,
-            *extra_hurl_args,
-            "--report-json",
-            report_dir,
-        ]
+    report_file = node_report_dir / "report.json"
+    cmd = [
+        "hurl",
+        "--test",
+        *global_args,
+        *extra_hurl_args,
+        "--report-json",
+        str(node_report_dir),
+    ]
 
-        for dep_id in graph.get(node_id, set()):
-            for var_key, value in shared_vars.items():
-                if var_key.startswith(f"{dep_id}."):
-                    hurl_name = var_key.replace(".", "_")
-                    cmd.extend(["--variable", f"{hurl_name}={value}"])
-                    injected.append(hurl_name)
+    for dep_id in graph.get(node_id, set()):
+        for var_key, value in shared_vars.items():
+            if var_key.startswith(f"{dep_id}."):
+                hurl_name = var_key.replace(".", "_")
+                cmd.extend(["--variable", f"{hurl_name}={value}"])
+                injected.append(hurl_name)
 
-        result = subprocess.run(
-            cmd,
-            input=node["content"],
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=str(Path(node["path"]).parent),
-        )
-        if result.returncode != 0:
-            print(f"FAILED: {node_id}\n{result.stderr}")
-            return False
+    result = subprocess.run(
+        cmd,
+        input=node["content"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(Path(node["path"]).parent),
+    )
+    if result.returncode != 0:
+        print(f"FAILED: {node_id}\n{result.stderr}")
+        return False
 
-        captured: list[str] = []
-        for name, value in extract_captures(report_file, node["outputs"], node_id):
-            shared_vars[f"{node_id}.{name}"] = value
-            captured.append(name)
+    captured: list[str] = []
+    for name, value in extract_captures(report_file, node["outputs"], node_id):
+        shared_vars[f"{node_id}.{name}"] = value
+        captured.append(name)
 
     missed = [o for o in node["outputs"] if o not in captured]
     parts: list[str] = []
@@ -113,17 +113,54 @@ def run_step(
     return True
 
 
+def _execute(
+    nodes: dict[str, dict[str, Any]],
+    graph: dict[str, set[str]],
+    shared_vars: dict[str, Any],
+    global_args: list[str],
+    extra: list[str],
+    reports_path: Path,
+) -> bool:
+    """Run nodes in topological order, writing each report to *reports_path*.
+
+    Raises ``CycleError`` if a dependency cycle is detected.
+    Returns ``False`` as soon as a node fails, ``True`` if all succeed.
+    """
+    sorter = TopologicalSorter(graph)
+    sorter.prepare()
+    while sorter.is_active():
+        wave = sorted(
+            sorter.get_ready(),
+            key=lambda nid: nodes[nid]["priority"],
+            reverse=True,
+        )
+        for node_id in wave:
+            node_report_dir = reports_path / node_id
+            node_report_dir.mkdir()
+            success = run_step(
+                node_id, nodes[node_id], shared_vars, graph, global_args, extra,
+                node_report_dir,
+            )
+            sorter.done(node_id)
+            if not success:
+                return False
+    return True
+
+
 def run_hurl_orchestrator(
     test_dir_str: str = ".",
     *,
     files: list[str] | None = None,
     extra_hurl_args: list[str] | None = None,
+    report_zip: str = "report.zip",
 ) -> bool:
     """Discover, order, and execute ``.hurl`` files in dependency order.
 
     When *files* is provided those specific files are used instead of scanning
     *test_dir_str*.  Any *extra_hurl_args* are forwarded verbatim to every hurl
     invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
+    After execution a zip archive of all hurl reports is written to *report_zip*
+    in the current working directory.
 
     Returns ``True`` if all steps succeeded, ``False`` otherwise.
     """
@@ -173,24 +210,17 @@ def run_hurl_orchestrator(
             else:
                 graph[t_id].add(dep)
 
-    try:
-        sorter = TopologicalSorter(graph)
-        sorter.prepare()
-        while sorter.is_active():
-            wave = sorted(
-                sorter.get_ready(),
-                key=lambda nid: nodes[nid]["priority"],
-                reverse=True,
+    with tempfile.TemporaryDirectory() as reports_root:
+        try:
+            all_ok = _execute(
+                nodes, graph, shared_vars, global_args, extra, Path(reports_root)
             )
-            for node_id in wave:
-                success = run_step(
-                    node_id, nodes[node_id], shared_vars, graph, global_args, extra
-                )
-                sorter.done(node_id)
-                if not success:
-                    return False
-    except CycleError as e:
-        print(f"Circular dependency: {e}")
-        return False
+        except CycleError as e:
+            print(f"Circular dependency: {e}")
+            return False
 
-    return True
+        zip_base = str(Path(report_zip).with_suffix(""))
+        archive = shutil.make_archive(zip_base, "zip", reports_root)
+        print(f"Report saved to {archive}")
+
+    return all_ok
