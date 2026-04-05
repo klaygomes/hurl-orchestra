@@ -288,14 +288,57 @@ When you run `hurl-orchestra`, the tool performs the following steps:
 
 ## 6. Troubleshooting
 
+### "ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev"
+
+The tool requires the Hurl binary to be installed and available in your shell `PATH`. Install Hurl and verify with `hurl --version`.
+
+### Frontmatter validation errors
+
+Messages like:
+
+* `ERROR: node id for foo must be a non-empty string`
+* `ERROR: output name for node 'foo' must be a non-empty string`
+* `ERROR: deps for 'foo' must be a list`
+* `ERROR: deps for 'foo' must contain strings or dicts`
+* `ERROR: priority for 'foo' must be an integer`
+
+mean your YAML frontmatter is malformed or one of the fields has the wrong type. Fix the `id`, `outputs`, `deps`, or `priority` fields in the `.hurl` file.
+
+### "ERROR: alias template 'X' not found (used as 'Y')"
+
+An alias refers to a template that was not loaded from the provided files. Make sure the aliased `.hurl` file is included in the same run and that the template name matches the source file's `id` or stem.
+
+### "ERROR: 'foo' depends on 'bar' but no .hurl file or alias defines id: bar"
+
+Your declared dependency does not exist. Either add the missing `.hurl` file, correct the dependency name, or include the dependency file when calling `hurl-orchestra` directly.
+
 ### "Circular dependency detected"
 
 Your `deps` create an infinite loop. Check your frontmatter to ensure you aren't accidentally requiring a file that eventually requires the current file.
 
-### "FAILED: node_id"
+### "FAILED: <node_id>\nHurl timed out after 300 seconds"
 
-The orchestrator will output the `stderr` from the Hurl binary. This usually means an assertion failed within the `.hurl` file itself or a network error occurred.
+A single Hurl execution took longer than the built-in 5-minute timeout. Either optimize that test, remove long-running steps, or run it manually in Hurl to diagnose why it hangs.
 
-### "Node depends on missing node"
+### "FAILED: <node_id>\n<stderr from hurl>"
 
-Ensure the `id` in your `deps` matches the `id` defined in the target Hurl file's frontmatter (or its filename stem if no `id` is provided).
+The Hurl command itself failed. This is usually a failed assertion, invalid request, or runtime error inside the `.hurl` file. Use the Hurl error output to fix the failing test.
+
+### "FAILED: <node_id>\nMissing expected outputs: ..."
+
+Your node declared `outputs`, but the report did not contain those capture names. Check that the `Captures` section in the `.hurl` file defines all expected variables and that the response includes the expected JSON or text path.
+
+### "ERROR: <node_id>: report not found; [...] not captured"
+
+Hurl did not produce a report for that node, usually because the command failed or the report directory was not written. Inspect the earlier failure message and confirm Hurl was invoked with `--report-json` correctly.
+
+### "ERROR: <node_id>: invalid report JSON; [...] not captured"
+
+The generated report could not be parsed as JSON. This usually indicates a corrupted or incomplete Hurl report file. Re-run the node to see if the failure is reproducible.
+
+### Diagram generation errors
+
+* `Diagram output already exists and overwrite is disabled` — use `--diagram-overwrite` to replace the file.
+* `Diagram output is a directory` — provide a file path, not a directory.
+
+If you pipe diagram output to another tool using `--diagram-output -`, a broken pipe may happen when the receiver closes early; this is not a failure in the orchestrator itself.
