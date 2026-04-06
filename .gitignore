@@ -15,6 +15,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+tmp_*
 
 # Build & distribution
 dist/
@@ -34,3 +35,4 @@ build/
 # Project-specific
 .claude/
 memory/
+

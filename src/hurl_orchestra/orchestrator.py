@@ -345,7 +345,6 @@ def _execute(
                             shared_vars[node_id] = captured
                     sorter.done(node_id)
     return overall_success
-    return True
 
 
 def _validate_graph(
