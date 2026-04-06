@@ -80,6 +80,7 @@ Common frontmatter fields:
 * `outputs` — list of capture names this test publishes; optional
 * `deps` — list of upstream node IDs or alias definitions; optional
 * `priority` — optional integer that influences ordering within a ready wave
+* `args` — optional list of Hurl CLI flags specific to this file; strings are auto-prefixed (`verbose` → `--verbose`, `v` → `-v`), while single-key dicts become a flag/value pair (`connect-timeout: 30` → `--connect-timeout 30`)
 
 Example file structure:
 
@@ -158,6 +159,22 @@ hurl-orchestra auth.hurl profile.hurl --variable env=staging
 ```
 
 This works the same as calling `hurl` with those flags — the orchestrator passes them through verbatim.
+
+You can also specify per-file Hurl flags in frontmatter using `args`:
+
+```yaml
+---
+id: slow_endpoint
+args:
+  - verbose
+  - connect-timeout: 30
+  - variable: env=staging
+---
+GET https://slow.example.com/data
+HTTP 200
+```
+
+Per-file `args` are appended after any global CLI flags, so last-value-wins behavior applies when the same flag is specified in both places.
 
 ### Running Specific Files
 

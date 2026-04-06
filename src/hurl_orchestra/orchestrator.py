@@ -104,6 +104,38 @@ def _parse_priority(priority_value: Any, t_id: str) -> int:
         ) from err
 
 
+def _parse_args(args: Any, t_id: str) -> list[str]:
+    if args is None:
+        return []
+    if not isinstance(args, list):
+        raise GraphError(
+            f"ERROR: args for '{t_id}' must be a list; got {type(args).__name__}"
+        )
+
+    flat: list[str] = []
+    for item in args:
+        if isinstance(item, str):
+            if item.startswith("-"):
+                flat.append(item)
+            else:
+                prefix = "-" if len(item) == 1 else "--"
+                flat.append(f"{prefix}{item}")
+        elif isinstance(item, dict):
+            if len(item) != 1:
+                raise GraphError(
+                    f"ERROR: args for '{t_id}' must contain strings or single-key dicts"
+                )
+            for key, value in item.items():
+                prefix = "-" if len(key) == 1 else "--"
+                flat.extend([f"{prefix}{key}", str(value)])
+        else:
+            raise GraphError(
+                f"ERROR: args for '{t_id}' must contain strings or dicts; "
+                f"got {type(item).__name__}"
+            )
+    return flat
+
+
 def extract_captures(
     report_path: Path, target_outputs: list[str], node_id: str = ""
 ) -> dict[str, Any]:
@@ -179,6 +211,7 @@ def run_step(
         "--test",
         *global_args,
         *extra_hurl_args,
+        *node.get("hurl_args", []),
         "--report-json",
         str(node_report_dir),
     ]
@@ -385,6 +418,7 @@ def build_graph(
             outputs = _parse_outputs(post.get("outputs", []), t_id)
             deps = _parse_deps(post.get("deps", []), t_id)
             priority = _parse_priority(post.get("priority", 0), t_id)
+            hurl_args = _parse_args(post.get("args"), t_id)
 
             templates[t_id] = {
                 "path": str(path),
@@ -392,6 +426,7 @@ def build_graph(
                 "outputs": outputs,
                 "deps": deps,
                 "priority": priority,
+                "hurl_args": hurl_args,
             }
 
     for t_id, data in templates.items():

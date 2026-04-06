@@ -24,6 +24,7 @@ def hurl_file(
     outputs: list[str] | None = None,
     deps: list | None = None,
     priority: int | None = None,
+    args: list | None = None,
 ) -> None:
     """Write a .hurl file with optional YAML frontmatter."""
     lines: list[str] = []
@@ -41,6 +42,14 @@ def hurl_file(
                 lines.append(f"  - {dep}")
     if priority is not None:
         lines.append(f"priority: {priority}")
+    if args is not None:
+        lines.append("args:")
+        for arg in args:
+            if isinstance(arg, dict):
+                for k, v in arg.items():
+                    lines.append(f"  - {k}: {v}")
+            else:
+                lines.append(f"  - {arg}")
     content = ("---\n" + "\n".join(lines) + "\n---\n") if lines else ""
     path.write_text(content)
 
@@ -255,6 +264,126 @@ def test_invalid_priority_fails(tmp_path: Path, capsys: pytest.CaptureFixture[st
     out = capsys.readouterr().out
     assert result is False
     assert "must be an integer" in out
+
+
+def test_args_string_flag_is_auto_prefixed(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", args=["verbose"])
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "--verbose" in cmds[0]
+
+
+def test_args_dict_expands_to_flag_and_value(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", args=[{"connect-timeout": 30}])
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "--connect-timeout" in cmds[0]
+    idx = cmds[0].index("--connect-timeout")
+    assert cmds[0][idx + 1] == "30"
+
+
+def test_args_single_char_uses_single_dash(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", args=["v"])
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "-v" in cmds[0]
+    assert "--v" not in cmds[0]
+
+
+def test_args_single_char_dict_key_uses_single_dash(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", args=[{"k": "mykey"}])
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "-k" in cmds[0]
+    idx = cmds[0].index("-k")
+    assert cmds[0][idx + 1] == "mykey"
+
+
+def test_args_per_file_comes_after_extra_hurl_args(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a", args=[{"connect-timeout": 30}])
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), extra_hurl_args=["--connect-timeout", "5"])
+
+    cmd = cmds[0]
+    indices = [i for i, x in enumerate(cmd) if x == "--connect-timeout"]
+    assert len(indices) == 2
+    assert cmd[indices[0] + 1] == "5"
+    assert cmd[indices[1] + 1] == "30"
+
+
+def test_invalid_args_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\nargs: not-a-list\n---\nGET https://example.com\nHTTP 200\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "args for 'a' must be a list" in out
+
+
+def test_invalid_args_item_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\nargs:\n  - 123\n---\nGET https://example.com\nHTTP 200\n"
+    )
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "args for 'a' must contain strings or dicts" in out
+
+
+def test_no_args_field_does_not_break(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a")
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    assert result is True
+    assert cmds[0][:3] == ["hurl", "--test", "--report-json"] or "--report-json" in cmds[0]
 
 
 def test_invalid_outputs_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
