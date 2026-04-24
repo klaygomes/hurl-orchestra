@@ -13,7 +13,14 @@ def _build_tests(node_id: str, reports_path: Path) -> list[dict]:
     report_path = node_dir / "report.json"
 
     if not node_dir.exists():
-        return [{"name": f"node {node_id}", "status": "skipped", "duration": 0, "suite": [node_id]}]
+        return [
+            {
+                "name": f"node {node_id}",
+                "status": "skipped",
+                "duration": 0,
+                "suite": [node_id],
+            }
+        ]
 
     if not report_path.exists():
         return [
@@ -22,7 +29,10 @@ def _build_tests(node_id: str, reports_path: Path) -> list[dict]:
                 "status": "failed",
                 "duration": 0,
                 "suite": [node_id],
-                "message": "Execution failed - no hurl report generated (subprocess error or timeout)",
+                "message": (
+                    "Execution failed - no hurl report generated"
+                    " (subprocess error or timeout)"
+                ),
             }
         ]
 
@@ -46,17 +56,29 @@ def _build_tests(node_id: str, reports_path: Path) -> list[dict]:
     for file_obj in file_results:
         for idx, entry in enumerate(file_obj.get("entries", []), start=1):
             line = entry.get("line", 0)
-            name = f"{node_id}: entry {idx} (line {line})" if line else f"{node_id}: entry {idx}"
+            name = (
+                f"{node_id}: entry {idx} (line {line})"
+                if line
+                else f"{node_id}: entry {idx}"
+            )
             status = "passed" if entry.get("success", True) else "failed"
             duration = entry.get("time", 0)
 
-            test: dict = {"name": name, "status": status, "duration": duration, "suite": [node_id]}
+            test: dict = {
+                "name": name,
+                "status": status,
+                "duration": duration,
+                "suite": [node_id],
+            }
 
             if status == "failed":
-                failed_asserts = [a for a in entry.get("asserts", []) if not a.get("success", True)]
+                failed_asserts = [
+                    a for a in entry.get("asserts", []) if not a.get("success", True)
+                ]
                 if failed_asserts:
                     test["message"] = " | ".join(
-                        f"type={a.get('type', '')} actual={a.get('actual', '')} expected={a.get('expected', '')}"
+                        f"type={a.get('type', '')} actual={a.get('actual', '')}"
+                        f" expected={a.get('expected', '')}"
                         for a in failed_asserts
                     )
 
@@ -65,7 +87,9 @@ def _build_tests(node_id: str, reports_path: Path) -> list[dict]:
     return tests
 
 
-def build_ctrf(node_ids: list[str], reports_path: Path, start_ms: int, stop_ms: int) -> dict:
+def build_ctrf(
+    node_ids: list[str], reports_path: Path, start_ms: int, stop_ms: int
+) -> dict:
     """Build a CTRF report dict from all node reports.
 
     Args:

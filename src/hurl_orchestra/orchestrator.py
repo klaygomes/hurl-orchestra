@@ -512,7 +512,9 @@ def run_hurl_orchestrator(
                 else test_dir / Path(report_ctrf)
             )
             try:
-                write_ctrf(list(nodes.keys()), Path(reports_root), ctrf_path, start_ms, stop_ms)
+                write_ctrf(
+                    list(nodes.keys()), Path(reports_root), ctrf_path, start_ms, stop_ms
+                )
                 print(f"CTRF report saved to {ctrf_path}")
             except OSError as exc:
                 print(f"WARNING: Failed to write CTRF report: {exc}")
