@@ -859,7 +859,7 @@ def test_cli_defaults_to_current_directory() -> None:
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()
-    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip")
+    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None)
 
 
 def test_cli_passes_custom_directory_argument() -> None:
@@ -868,7 +868,7 @@ def test_cli_passes_custom_directory_argument() -> None:
         patch("sys.argv", ["hurl-orchestra", "/tmp/tests"]),
     ):
         main()
-    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip")
+    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None)
 
 
 def test_cli_passes_specific_hurl_files() -> None:
@@ -877,7 +877,7 @@ def test_cli_passes_specific_hurl_files() -> None:
         patch("sys.argv", ["hurl-orchestra", "a.hurl", "b.hurl"]),
     ):
         main()
-    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip")
+    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None)
 
 
 def test_cli_forwards_extra_hurl_args_with_directory() -> None:
@@ -886,17 +886,17 @@ def test_cli_forwards_extra_hurl_args_with_directory() -> None:
         patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip")
+    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None)
 
 
 def test_cli_forwards_extra_hurl_args_with_files() -> None:
     with (
         patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
-        patch("sys.argv", ["hurl-orchestra", "test.hurl", "--variable", "x=y"]),
+        patch("sys.argv", ["hurl-orchestra", "test.hurl", "--", "--variable", "x=y"]),
     ):
         main()
     mock.assert_called_once_with(
-        files=["test.hurl"], extra_hurl_args=["--variable", "x=y"], report_zip="report.zip"
+        files=["test.hurl"], extra_hurl_args=["--variable", "x=y"], report_zip="report.zip", report_ctrf=None
     )
 
 
@@ -948,7 +948,32 @@ def test_extra_hurl_args_forwarded_to_subprocess(tmp_path: Path) -> None:
     assert "x=y" in cmds[0]
 
 
-def test_specific_files_env_file_resolved_from_parent(tmp_path: Path) -> None:
+def test_specific_files_env_file_resolved_from_test_dir(tmp_path: Path) -> None:
+    """When files are passed, .env is looked up in test_dir (default CWD), not file parent."""
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    hurl_file(sub / "ping.hurl", id="ping")
+    # .env in CWD (tmp_path), NOT in file parent (sub)
+    (tmp_path / ".env").write_text("base_url=https://example.com")
+
+    captured: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        captured.extend(cmd)
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(
+            str(tmp_path), files=[str(sub / "ping.hurl")]
+        )
+
+    assert "--variables-file" in captured
+    assert str(tmp_path / ".env") in captured
+
+
+def test_specific_files_env_file_uses_cwd_when_no_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When files passed without explicit dir, .env is resolved from CWD."""
+    monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("base_url=https://example.com")
     hurl_file(tmp_path / "ping.hurl", id="ping")
 
@@ -962,7 +987,6 @@ def test_specific_files_env_file_resolved_from_parent(tmp_path: Path) -> None:
         run_hurl_orchestrator(files=[str(tmp_path / "ping.hurl")])
 
     assert "--variables-file" in captured
-    assert str(tmp_path / ".env") in captured
 
 
 
@@ -976,7 +1000,7 @@ def test_report_zip_created_with_default_name(tmp_path: Path) -> None:
         run_hurl_orchestrator(str(tmp_path))
     mock_archive.assert_called_once()
     base, fmt = mock_archive.call_args.args[:2]
-    assert base == "report"
+    assert base == str(tmp_path / "report")
     assert fmt == "zip"
 
 
@@ -988,7 +1012,7 @@ def test_report_zip_custom_name(tmp_path: Path) -> None:
     ):
         run_hurl_orchestrator(str(tmp_path), report_zip="my_run.zip")
     base, fmt = mock_archive.call_args.args[:2]
-    assert base == "my_run"
+    assert base == str(tmp_path / "my_run")
     assert fmt == "zip"
 
 
@@ -1011,6 +1035,75 @@ def test_cli_report_zip_custom_name() -> None:
     assert mock.call_args.kwargs["report_zip"] == "run.zip"
 
 
+
+
+def test_cli_double_dash_splits_hurl_args() -> None:
+    """Args after -- are forwarded verbatim to hurl."""
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "./tests", "--", "--variable", "k=v", "--connect-timeout", "10"]),
+    ):
+        main()
+    mock.assert_called_once_with(
+        "./tests",
+        extra_hurl_args=["--variable", "k=v", "--connect-timeout", "10"],
+        report_zip="report.zip",
+        report_ctrf=None,
+    )
+
+
+def test_cli_mixed_known_flags_and_double_dash() -> None:
+    """Known flags before --, hurl value-flags after --."""
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--report-zip", "r.zip", "./tests", "--", "--variable", "x=1"]),
+    ):
+        main()
+    mock.assert_called_once_with(
+        "./tests",
+        extra_hurl_args=["--variable", "x=1"],
+        report_zip="r.zip",
+        report_ctrf=None,
+    )
+
+
+def test_cli_boolean_passthrough_without_double_dash() -> None:
+    """Simple boolean flags like --verbose still work without --."""
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose", "--very-verbose"]),
+    ):
+        main()
+    mock.assert_called_once_with(
+        "./tests",
+        extra_hurl_args=["--verbose", "--very-verbose"],
+        report_zip="report.zip",
+        report_ctrf=None,
+    )
+
+
+def test_cli_order_independent_known_flags() -> None:
+    """--report-zip works regardless of position before --."""
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--report-zip", "r.zip", "./tests"]),
+    ):
+        main()
+    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None)
+
+
+def test_report_zip_in_cwd_when_no_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no directory is passed, report goes to CWD."""
+    monkeypatch.chdir(tmp_path)
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with (
+        patch("subprocess.run", return_value=ok()),
+        patch("shutil.make_archive") as mock_archive,
+    ):
+        run_hurl_orchestrator()
+    base, fmt = mock_archive.call_args.args[:2]
+    assert base == str(Path(".") / "report")
+    assert fmt == "zip"
 
 
 def test_cli_diagram_flag_calls_write_diagram(tmp_path: Path) -> None:

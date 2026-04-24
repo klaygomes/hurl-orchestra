@@ -150,15 +150,21 @@ hurl-orchestra auth.hurl profile.hurl   # run specific files only
 
 ### Passing Hurl Flags
 
-Any flag that Hurl itself accepts can be passed directly and it will be forwarded to every invocation:
+Simple boolean flags (no value) can be passed directly:
 
 ```bash
 hurl-orchestra ./tests --verbose
-hurl-orchestra ./tests --variable host=localhost --retry 3
-hurl-orchestra auth.hurl profile.hurl --variable env=staging
 ```
 
-This works the same as calling `hurl` with those flags — the orchestrator passes them through verbatim.
+For flags that take a value (`--variable`, `--connect-timeout`, `--header`, etc.), place them after a `--` separator so they are forwarded correctly:
+
+```bash
+hurl-orchestra ./tests -- --variable host=localhost --retry 3
+hurl-orchestra auth.hurl profile.hurl -- --variable env=staging
+hurl-orchestra --report-zip r.zip ./tests -- --variable k=v --connect-timeout 10
+```
+
+Everything after `--` is passed through verbatim to every `hurl` invocation.
 
 You can also specify per-file Hurl flags in frontmatter using `args`:
 
@@ -201,10 +207,37 @@ report.zip
     └── store/
 ```
 
-The zip is written even if the run fails, so partial results are preserved for debugging. Use `--report-zip` to change the output filename:
+The zip is written even if the run fails, so partial results are preserved for debugging. The report is placed inside the test directory when one is explicitly passed, or in the current working directory otherwise. Use `--report-zip` to change the filename:
 
 ```bash
-hurl-orchestra ./tests --report-zip ci-run.zip
+hurl-orchestra ./tests                        # → ./tests/report.zip
+hurl-orchestra                                # → ./report.zip (CWD)
+hurl-orchestra ./tests --report-zip ci-run.zip  # → ./tests/ci-run.zip
+```
+
+#### GitHub CI report (CTRF)
+
+Use `--report-ctrf` to also generate a [CTRF](https://github.com/ctrf-io/ctrf) JSON report alongside the zip. CTRF is the format consumed by [ctrf-io/github-test-reporter](https://github.com/ctrf-io/github-test-reporter), which displays test results as a GitHub Actions job summary and PR comment.
+
+```bash
+hurl-orchestra ./tests --report-ctrf results.json
+```
+
+Each hurl entry becomes one test in the report. Nodes that were skipped because an upstream dependency failed appear with `status: skipped`; nodes that errored at the subprocess level appear with `status: failed`.
+
+Add the reporter step to your GitHub Actions workflow after running the orchestrator:
+
+```yaml
+- name: Run tests
+  run: hurl-orchestra ./tests --report-ctrf results.json
+
+- name: Publish test report
+  uses: ctrf-io/github-test-reporter@v1
+  with:
+    report-path: 'results.json'
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  if: always()
 ```
 
 ### Visualising the DAG
@@ -278,7 +311,7 @@ Priority only affects ordering **within** the same wave. It never overrides actu
 
 ### Global Environment (`.env`)
 
-The orchestrator automatically detects a `.env` file in the test directory. Variables defined here are available to **all** Hurl files without being declared in the frontmatter.
+The orchestrator looks for a `.env` file in the directory passed as argument (or the current working directory when none is given). Variables defined here are available to **all** Hurl files without being declared in the frontmatter.
 
 ```properties
 # .env

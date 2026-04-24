@@ -5,12 +5,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any
 
 import frontmatter
+
+from .ctrf import write_ctrf
 
 
 class GraphError(Exception):
@@ -456,6 +459,7 @@ def run_hurl_orchestrator(
     files: list[str] | None = None,
     extra_hurl_args: list[str] | None = None,
     report_zip: str = "report.zip",
+    report_ctrf: str | None = None,
 ) -> bool:
     """Discover, order, and execute ``.hurl`` files in dependency order.
 
@@ -477,12 +481,12 @@ def run_hurl_orchestrator(
 
     if files is not None:
         hurl_paths: list[Path] = [Path(f) for f in files]
-        if hurl_paths:
-            test_dir = hurl_paths[0].parent
+        env_dir = test_dir
     else:
         hurl_paths = sorted(test_dir.glob("*.hurl"))
+        env_dir = test_dir
 
-    global_args = get_global_args(test_dir)
+    global_args = get_global_args(env_dir)
 
     try:
         nodes, graph = build_graph(hurl_paths)
@@ -491,6 +495,7 @@ def run_hurl_orchestrator(
         return False
 
     with tempfile.TemporaryDirectory() as reports_root:
+        start_ms = int(time.time() * 1000)
         try:
             all_ok = _execute(
                 nodes, graph, shared_vars, global_args, extra, Path(reports_root)
@@ -498,8 +503,25 @@ def run_hurl_orchestrator(
         except CycleError as e:
             print(f"Circular dependency: {e}")
             return False
+        stop_ms = int(time.time() * 1000)
 
-        zip_base = str(Path(report_zip).with_suffix(""))
+        if report_ctrf is not None:
+            ctrf_path = (
+                Path(report_ctrf)
+                if Path(report_ctrf).is_absolute()
+                else test_dir / Path(report_ctrf)
+            )
+            try:
+                write_ctrf(list(nodes.keys()), Path(reports_root), ctrf_path, start_ms, stop_ms)
+                print(f"CTRF report saved to {ctrf_path}")
+            except OSError as exc:
+                print(f"WARNING: Failed to write CTRF report: {exc}")
+
+        report_path = Path(report_zip)
+        if report_path.is_absolute():
+            zip_base = str(report_path.with_suffix(""))
+        else:
+            zip_base = str(test_dir / report_path.with_suffix(""))
         archive = shutil.make_archive(zip_base, "zip", reports_root)
         print(f"Report saved to {archive}")
 

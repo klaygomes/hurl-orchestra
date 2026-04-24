@@ -35,6 +35,12 @@ def main() -> None:
         help="Save all hurl reports to this zip file (default: report.zip)",
     )
     parser.add_argument(
+        "--report-ctrf",
+        default=None,
+        metavar="FILE",
+        help="Save CTRF JSON report to this file (default: disabled)",
+    )
+    parser.add_argument(
         "--diagram",
         action="store_true",
         help=(
@@ -53,7 +59,15 @@ def main() -> None:
         action="store_true",
         help="Overwrite diagram output if it already exists.",
     )
-    args, extra_hurl_args = parser.parse_known_args()
+    raw = sys.argv[1:]
+    if "--" in raw:
+        idx = raw.index("--")
+        own_args, passthrough = raw[:idx], raw[idx + 1 :]
+    else:
+        own_args, passthrough = raw, []
+
+    args, leftover = parser.parse_known_args(own_args)
+    extra_hurl_args = leftover + passthrough
 
     paths: list[str] = args.paths
 
@@ -65,11 +79,17 @@ def main() -> None:
         )
     elif len(paths) == 1 and not paths[0].endswith(".hurl"):
         ok = run_hurl_orchestrator(
-            paths[0], extra_hurl_args=extra_hurl_args, report_zip=args.report_zip
+            paths[0],
+            extra_hurl_args=extra_hurl_args,
+            report_zip=args.report_zip,
+            report_ctrf=args.report_ctrf,
         )
     else:
         ok = run_hurl_orchestrator(
-            files=paths, extra_hurl_args=extra_hurl_args, report_zip=args.report_zip
+            files=paths,
+            extra_hurl_args=extra_hurl_args,
+            report_zip=args.report_zip,
+            report_ctrf=args.report_ctrf,
         )
 
     if not ok:
