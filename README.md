@@ -145,7 +145,8 @@ HTTP 200
 ```bash
 hurl-orchestra                          # runs against the current directory
 hurl-orchestra ./tests                  # runs against a specific directory
-hurl-orchestra auth.hurl profile.hurl   # run specific files only
+hurl-orchestra profile.hurl             # runs profile.hurl and its dependencies
+hurl-orchestra --dry-run ./tests        # prints the execution plan only
 ```
 
 ### Passing Hurl Flags
@@ -184,14 +185,51 @@ Per-file `args` are appended after any global CLI flags, so last-value-wins beha
 
 ### Running Specific Files
 
-When you pass `.hurl` files directly, the orchestrator still respects their `deps`, `outputs`, and all other frontmatter — only the file discovery step changes. Files you list are the only ones loaded as templates, so any `deps` they declare must also be among the files you pass.
-
-If the diagram output file already exists, use `--diagram-overwrite` to replace it.
+When you pass `.hurl` files directly, the orchestrator loads every `.hurl` file in the same directory as the ones you listed, resolves the full dependency graph, and then runs only the files you asked for plus everything they transitively depend on. Unrelated files in the directory are not executed.
 
 ```bash
 # Runs auth.hurl first (because profile.hurl depends on it), then profile.hurl
-hurl-orchestra auth.hurl profile.hurl
+hurl-orchestra profile.hurl
 ```
+
+Nodes that were pulled in this way are listed before execution starts:
+
+```
+Resolved dependencies: auth
+SUCCESS: auth [captured: token]
+SUCCESS: profile [injected: auth_token]
+```
+
+Use `--dry-run` to see the plan without running anything. It prints each execution wave in order, which is the quickest way to check what a single file will pull in:
+
+```bash
+hurl-orchestra --dry-run checkout.hurl
+```
+
+```
+Resolved dependencies: add_item, auth, create_cart
+Plan: 4 node(s)
+  wave 1: auth
+  wave 2: create_cart
+  wave 3: add_item
+  wave 4: checkout
+```
+
+Pass `--no-deps` to disable resolution. In that mode only the listed files are loaded, so every dependency must also be on the command line:
+
+```bash
+hurl-orchestra --no-deps auth.hurl profile.hurl
+```
+
+### Console Output
+
+Each node prints exactly one line as it finishes:
+
+* `SUCCESS: <id> [injected: ... | captured: ...]`
+* `FAILED: <id>` followed by the Hurl error output
+* `SKIPPED: <id> (failed dependency: <ids>)` for nodes that never ran because an upstream node failed
+
+Upstream outputs are handed to Hurl through a private, per-run `--variables-file` rather than `--variable` flags, so captured values such as tokens never appear in the process list.
 
 ### Reports
 
@@ -360,7 +398,15 @@ An alias refers to a template that was not loaded from the provided files. Make 
 
 ### "ERROR: 'foo' depends on 'bar' but no .hurl file or alias defines id: bar"
 
-Your declared dependency does not exist. Either add the missing `.hurl` file, correct the dependency name, or include the dependency file when calling `hurl-orchestra` directly.
+Your declared dependency does not exist in the directories that were scanned. Either add the missing `.hurl` file next to the one that declares the dependency, or correct the dependency name. If you ran with `--no-deps`, the dependency file must also be listed on the command line.
+
+### "ERROR: .hurl file not found: ..."
+
+One of the paths passed on the command line does not point to an existing file. Check the spelling and the working directory.
+
+### "SKIPPED: <node_id> (failed dependency: ...)"
+
+The node was not executed because one of its upstream dependencies failed. Fix the listed dependency first; the skipped node will run once its inputs are available.
 
 ### "Circular dependency detected"
 

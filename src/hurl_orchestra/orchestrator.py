@@ -22,6 +22,9 @@ class GraphError(Exception):
 
 MAX_WORKERS = min(32, (os.cpu_count() or 1) + 4)
 
+Nodes = dict[str, dict[str, Any]]
+Graph = dict[str, set[str]]
+
 
 def _validate_identifier(value: Any, description: str) -> str:
     if not isinstance(value, str) or not value:
@@ -193,11 +196,21 @@ def get_global_args(test_dir: Path) -> list[str]:
     return args
 
 
+def _collect_injected_variables(
+    node_id: str, shared_vars: dict[str, dict[str, Any]], graph: Graph
+) -> dict[str, Any]:
+    injected: dict[str, Any] = {}
+    for dep_id in graph.get(node_id, set()):
+        for var_key, value in shared_vars.get(dep_id, {}).items():
+            injected[_hurl_variable_name(dep_id, var_key)] = value
+    return injected
+
+
 def run_step(
     node_id: str,
     node: dict[str, Any],
     shared_vars: dict[str, dict[str, Any]],
-    graph: dict[str, set[str]],
+    graph: Graph,
     global_args: list[str],
     extra_hurl_args: list[str],
     node_report_dir: Path,
@@ -207,7 +220,7 @@ def run_step(
     Returns ``(success, message, captured_outputs)`` where the caller can
     update shared state.
     """
-    injected: list[str] = []
+    injected = _collect_injected_variables(node_id, shared_vars, graph)
     report_file = node_report_dir / "report.json"
     cmd = [
         "hurl",
@@ -219,29 +232,33 @@ def run_step(
         str(node_report_dir),
     ]
 
-    for dep_id in graph.get(node_id, set()):
-        for var_key, value in shared_vars.get(dep_id, {}).items():
-            hurl_name = _hurl_variable_name(dep_id, var_key)
-            cmd.extend(["--variable", f"{hurl_name}={value}"])
-            injected.append(hurl_name)
+    # Injected values travel through a private file so captured secrets
+    # never appear in the process list.
+    with tempfile.TemporaryDirectory() as private_dir:
+        if injected:
+            variables_file = Path(private_dir) / "variables.env"
+            variables_file.write_text(
+                "".join(f"{name}={value}\n" for name, value in injected.items())
+            )
+            cmd.extend(["--variables-file", str(variables_file)])
 
-    try:
-        result = subprocess.run(
-            cmd,
-            input=node["content"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=300,
-            cwd=str(Path(node["path"]).parent),
-        )
-    except subprocess.TimeoutExpired:
-        return (
-            False,
-            f"FAILED: {node_id}\nHurl timed out after 300 seconds\n",
-            {},
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                input=node["content"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                timeout=300,
+                cwd=str(Path(node["path"]).parent),
+            )
+        except subprocess.TimeoutExpired:
+            return (
+                False,
+                f"FAILED: {node_id}\nHurl timed out after 300 seconds\n",
+                {},
+            )
 
     if result.returncode != 0:
         return (False, f"FAILED: {node_id}\n{result.stderr}", {})
@@ -269,9 +286,17 @@ def run_step(
     return (True, f"SUCCESS: {node_id}{suffix}\n", captures)
 
 
+def _ready_by_priority(sorter: TopologicalSorter[str], nodes: Nodes) -> list[str]:
+    return sorted(
+        sorter.get_ready(),
+        key=lambda nid: nodes[nid]["priority"],
+        reverse=True,
+    )
+
+
 def _execute(
-    nodes: dict[str, dict[str, Any]],
-    graph: dict[str, set[str]],
+    nodes: Nodes,
+    graph: Graph,
     shared_vars: dict[str, dict[str, Any]],
     global_args: list[str],
     extra: list[str],
@@ -288,16 +313,18 @@ def _execute(
     overall_success = True
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         while sorter.is_active():
-            ready = sorted(
-                sorter.get_ready(),
-                key=lambda nid: nodes[nid]["priority"],
-                reverse=True,
-            )
             to_run: list[str] = []
-            for node_id in ready:
-                if any(dep in failed_nodes for dep in graph.get(node_id, set())):
+            for node_id in _ready_by_priority(sorter, nodes):
+                failed_deps = sorted(
+                    dep for dep in graph.get(node_id, set()) if dep in failed_nodes
+                )
+                if failed_deps:
                     failed_nodes.add(node_id)
                     sorter.done(node_id)
+                    print(
+                        f"SKIPPED: {node_id} "
+                        f"(failed dependency: {', '.join(failed_deps)})"
+                    )
                 else:
                     to_run.append(node_id)
 
@@ -350,9 +377,7 @@ def _execute(
     return overall_success
 
 
-def _validate_graph(
-    nodes: dict[str, dict[str, Any]], graph: dict[str, set[str]]
-) -> None:
+def _validate_graph(nodes: Nodes, graph: Graph) -> None:
     """Validate the built graph and raise GraphError on invalid structure."""
     for t_id, deps in graph.items():
         for dep_id in deps:
@@ -372,9 +397,9 @@ def _validate_graph(
 def _instantiate_template(
     template_name: str,
     instance_name: str,
-    templates: dict[str, dict[str, Any]],
-    nodes: dict[str, dict[str, Any]],
-    graph: dict[str, set[str]],
+    templates: Nodes,
+    nodes: Nodes,
+    graph: Graph,
 ) -> None:
     if template_name not in templates:
         raise GraphError(
@@ -402,14 +427,9 @@ def _instantiate_template(
             graph[instance_name].add(dep)
 
 
-def build_graph(
-    hurl_paths: list[Path],
-) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
-    """Parse .hurl frontmatter and build (nodes, graph)."""
-    templates: dict[str, dict[str, Any]] = {}
-    nodes: dict[str, dict[str, Any]] = {}
-    graph: dict[str, set[str]] = {}
-
+def load_templates(hurl_paths: list[Path]) -> Nodes:
+    """Parse .hurl frontmatter into templates keyed by node id."""
+    templates: Nodes = {}
     for path in hurl_paths:
         with path.open() as f:
             post = frontmatter.load(f)
@@ -417,19 +437,21 @@ def build_graph(
                 post.get("id", path.stem),
                 f"node id for {path.name}",
             )
-            outputs = _parse_outputs(post.get("outputs", []), t_id)
-            deps = _parse_deps(post.get("deps", []), t_id)
-            priority = _parse_priority(post.get("priority", 0), t_id)
-            hurl_args = _parse_args(post.get("args"), t_id)
-
             templates[t_id] = {
                 "path": str(path),
                 "content": post.content,
-                "outputs": outputs,
-                "deps": deps,
-                "priority": priority,
-                "hurl_args": hurl_args,
+                "outputs": _parse_outputs(post.get("outputs", []), t_id),
+                "deps": _parse_deps(post.get("deps", []), t_id),
+                "priority": _parse_priority(post.get("priority", 0), t_id),
+                "hurl_args": _parse_args(post.get("args"), t_id),
             }
+    return templates
+
+
+def link_templates(templates: Nodes) -> tuple[Nodes, Graph]:
+    """Instantiate aliases and build the validated (nodes, graph) pair."""
+    nodes: Nodes = {}
+    graph: Graph = {}
 
     for t_id, data in templates.items():
         if t_id not in nodes:
@@ -453,6 +475,76 @@ def build_graph(
     return nodes, graph
 
 
+def build_graph(hurl_paths: list[Path]) -> tuple[Nodes, Graph]:
+    """Parse .hurl frontmatter and build (nodes, graph)."""
+    return link_templates(load_templates(hurl_paths))
+
+
+def select_closure(nodes: Nodes, graph: Graph, roots: set[str]) -> tuple[Nodes, Graph]:
+    """Restrict (nodes, graph) to *roots* and everything they transitively depend on."""
+    selected: set[str] = set()
+    pending = list(roots)
+    while pending:
+        node_id = pending.pop()
+        if node_id in selected:
+            continue
+        selected.add(node_id)
+        pending.extend(graph[node_id])
+    return (
+        {nid: data for nid, data in nodes.items() if nid in selected},
+        {nid: deps for nid, deps in graph.items() if nid in selected},
+    )
+
+
+def _discover_siblings(requested: list[Path]) -> list[Path]:
+    parents = {path.parent for path in requested}
+    return sorted({path for parent in parents for path in parent.glob("*.hurl")})
+
+
+def _requested_ids(templates: Nodes, requested: list[Path]) -> set[str]:
+    wanted = {path.resolve() for path in requested}
+    return {
+        t_id
+        for t_id, data in templates.items()
+        if Path(data["path"]).resolve() in wanted
+    }
+
+
+def _print_plan(nodes: Nodes, graph: Graph) -> None:
+    sorter = TopologicalSorter(graph)
+    sorter.prepare()
+    print(f"Plan: {len(nodes)} node(s)")
+    wave = 0
+    while sorter.is_active():
+        wave += 1
+        ready = _ready_by_priority(sorter, nodes)
+        print(f"  wave {wave}: {', '.join(ready)}")
+        sorter.done(*ready)
+
+
+def _resolve_nodes(
+    test_dir: Path, files: list[str] | None, resolve_deps: bool
+) -> tuple[Nodes, Graph]:
+    if files is None:
+        return build_graph(sorted(test_dir.glob("*.hurl")))
+
+    requested = [Path(f) for f in files]
+    missing = [str(path) for path in requested if not path.is_file()]
+    if missing:
+        raise GraphError(f"ERROR: .hurl file not found: {', '.join(missing)}")
+    if not resolve_deps:
+        return build_graph(requested)
+
+    templates = load_templates(_discover_siblings(requested))
+    nodes, graph = link_templates(templates)
+    roots = _requested_ids(templates, requested)
+    nodes, graph = select_closure(nodes, graph, roots)
+    pulled = sorted(set(nodes) - roots)
+    if pulled:
+        print(f"Resolved dependencies: {', '.join(pulled)}")
+    return nodes, graph
+
+
 def run_hurl_orchestrator(
     test_dir_str: str = ".",
     *,
@@ -460,39 +552,40 @@ def run_hurl_orchestrator(
     extra_hurl_args: list[str] | None = None,
     report_zip: str = "report.zip",
     report_ctrf: str | None = None,
+    resolve_deps: bool = True,
+    dry_run: bool = False,
 ) -> bool:
     """Discover, order, and execute ``.hurl`` files in dependency order.
 
-    When *files* is provided those specific files are used instead of scanning
-    *test_dir_str*.  Any *extra_hurl_args* are forwarded verbatim to every hurl
-    invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
+    When *files* is provided those specific files are run.  With *resolve_deps*
+    enabled (the default) their declared ``deps`` are located among sibling
+    ``.hurl`` files and executed first; otherwise every dependency must be
+    listed explicitly.  Any *extra_hurl_args* are forwarded verbatim to every
+    hurl invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
+    With *dry_run* the execution plan is printed and nothing is executed.
     After execution a zip archive of all hurl reports is written to *report_zip*
     in the current working directory.
 
     Returns ``True`` if all steps succeeded, ``False`` otherwise.
     """
-    if shutil.which("hurl") is None:
+    if not dry_run and shutil.which("hurl") is None:
         print("ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev")
         return False
 
     test_dir = Path(test_dir_str)
     shared_vars: dict[str, dict[str, Any]] = {}
     extra = extra_hurl_args or []
-
-    if files is not None:
-        hurl_paths: list[Path] = [Path(f) for f in files]
-        env_dir = test_dir
-    else:
-        hurl_paths = sorted(test_dir.glob("*.hurl"))
-        env_dir = test_dir
-
-    global_args = get_global_args(env_dir)
+    global_args = get_global_args(test_dir)
 
     try:
-        nodes, graph = build_graph(hurl_paths)
+        nodes, graph = _resolve_nodes(test_dir, files, resolve_deps)
     except GraphError as exc:
         print(exc)
         return False
+
+    if dry_run:
+        _print_plan(nodes, graph)
+        return True
 
     with tempfile.TemporaryDirectory() as reports_root:
         start_ms = int(time.time() * 1000)

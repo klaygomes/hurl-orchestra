@@ -74,6 +74,15 @@ def writing_report(data: dict) -> object:
     return _run
 
 
+def injected_variables(cmd: list[str]) -> str:
+    """Return the concatenated content of every --variables-file passed in *cmd*."""
+    return "".join(
+        Path(cmd[i + 1]).read_text()
+        for i, part in enumerate(cmd)
+        if part == "--variables-file"
+    )
+
+
 
 
 def test_missing_hurl_binary_prints_error(
@@ -156,7 +165,8 @@ def test_failure_stops_downstream_execution(
 
     out = capsys.readouterr().out
     assert "FAILED: auth" in out
-    assert "profile" not in out
+    assert "SKIPPED: profile (failed dependency: auth)" in out
+    assert "SUCCESS: profile" not in out
 
 
 def test_circular_dependency_prints_error(
@@ -532,9 +542,11 @@ def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
 
     report = [{"entries": [{"captures": [{"name": "token", "value": "abc123"}]}]}]
     cmds: list[list[str]] = []
+    variables: list[str] = []
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
         cmds.append(list(cmd))
+        variables.append(injected_variables(cmd))
         for i, part in enumerate(cmd):
             if part == "--report-json":
                 (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
@@ -543,9 +555,8 @@ def test_captured_output_injected_into_downstream(tmp_path: Path) -> None:
     with patch("subprocess.run", side_effect=fake_run):
         run_hurl_orchestrator(str(tmp_path))
 
-    profile_cmd = cmds[1]
-    assert "--variable" in profile_cmd
-    assert "auth_token=abc123" in profile_cmd
+    assert "auth_token=abc123\n" in variables[1]
+    assert "abc123" not in " ".join(cmds[1])
 
 
 def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> None:
@@ -554,9 +565,11 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
 
     report = [{"entries": [{"captures": [{"name": "token", "value": "secret"}]}]}]
     cmds: list[list[str]] = []
+    variables: list[str] = []
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
         cmds.append(list(cmd))
+        variables.append(injected_variables(cmd))
         for i, part in enumerate(cmd):
             if part == "--report-json":
                 (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
@@ -565,8 +578,8 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
     with patch("subprocess.run", side_effect=fake_run):
         run_hurl_orchestrator(str(tmp_path))
 
-    profile_cmd = cmds[1]
-    assert "auth_token=secret" not in " ".join(profile_cmd)
+    assert "--variables-file" not in cmds[1]
+    assert "secret" not in variables[1]
 
 
 def test_corrupted_report_json_fails(
@@ -859,7 +872,7 @@ def test_cli_defaults_to_current_directory() -> None:
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()
-    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None)
+    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
 
 
 def test_cli_passes_custom_directory_argument() -> None:
@@ -868,7 +881,7 @@ def test_cli_passes_custom_directory_argument() -> None:
         patch("sys.argv", ["hurl-orchestra", "/tmp/tests"]),
     ):
         main()
-    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None)
+    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
 
 
 def test_cli_passes_specific_hurl_files() -> None:
@@ -877,7 +890,7 @@ def test_cli_passes_specific_hurl_files() -> None:
         patch("sys.argv", ["hurl-orchestra", "a.hurl", "b.hurl"]),
     ):
         main()
-    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None)
+    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
 
 
 def test_cli_forwards_extra_hurl_args_with_directory() -> None:
@@ -886,7 +899,7 @@ def test_cli_forwards_extra_hurl_args_with_directory() -> None:
         patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None)
+    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
 
 
 def test_cli_forwards_extra_hurl_args_with_files() -> None:
@@ -896,7 +909,12 @@ def test_cli_forwards_extra_hurl_args_with_files() -> None:
     ):
         main()
     mock.assert_called_once_with(
-        files=["test.hurl"], extra_hurl_args=["--variable", "x=y"], report_zip="report.zip", report_ctrf=None
+        files=["test.hurl"],
+        extra_hurl_args=["--variable", "x=y"],
+        report_zip="report.zip",
+        report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
     )
 
 
@@ -1049,6 +1067,8 @@ def test_cli_double_dash_splits_hurl_args() -> None:
         extra_hurl_args=["--variable", "k=v", "--connect-timeout", "10"],
         report_zip="report.zip",
         report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
     )
 
 
@@ -1064,6 +1084,8 @@ def test_cli_mixed_known_flags_and_double_dash() -> None:
         extra_hurl_args=["--variable", "x=1"],
         report_zip="r.zip",
         report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
     )
 
 
@@ -1079,6 +1101,8 @@ def test_cli_boolean_passthrough_without_double_dash() -> None:
         extra_hurl_args=["--verbose", "--very-verbose"],
         report_zip="report.zip",
         report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
     )
 
 
@@ -1089,7 +1113,7 @@ def test_cli_order_independent_known_flags() -> None:
         patch("sys.argv", ["hurl-orchestra", "--report-zip", "r.zip", "./tests"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None)
+    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
 
 
 def test_report_zip_in_cwd_when_no_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1135,3 +1159,222 @@ def test_cli_diagram_does_not_call_run_orchestrator(tmp_path: Path) -> None:
     ):
         main()
     mock_run.assert_not_called()
+
+
+def test_single_file_resolves_deps_from_siblings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    hurl_file(tmp_path / "unrelated.hurl", id="unrelated")
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(files=[str(tmp_path / "profile.hurl")])
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "Resolved dependencies: auth" in out
+    assert out.index("SUCCESS: auth") < out.index("SUCCESS: profile")
+    assert "unrelated" not in out
+
+
+def test_single_file_resolves_transitive_deps(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a")
+    hurl_file(tmp_path / "b.hurl", id="b", deps=["a"])
+    hurl_file(tmp_path / "c.hurl", id="c", deps=["b"])
+    hurl_file(tmp_path / "d.hurl", id="d", deps=["c"])
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(files=[str(tmp_path / "c.hurl")])
+
+    out = capsys.readouterr().out
+    assert "Resolved dependencies: a, b" in out
+    assert out.index("SUCCESS: a") < out.index("SUCCESS: b") < out.index("SUCCESS: c")
+    assert "SUCCESS: d" not in out
+
+
+def test_single_file_resolves_alias_deps_from_siblings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "admin.hurl", id="admin", deps=[{"auth": "admin_login"}])
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(files=[str(tmp_path / "admin.hurl")])
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "Resolved dependencies: admin_login" in out
+    assert "SUCCESS: admin_login" in out
+    assert "SUCCESS: auth" not in out
+
+
+def test_requested_files_across_directories_share_one_graph(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shared = tmp_path / "shared"
+    api = tmp_path / "api"
+    shared.mkdir()
+    api.mkdir()
+    hurl_file(shared / "auth.hurl", id="auth")
+    hurl_file(api / "profile.hurl", id="profile", deps=["auth"])
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(
+            files=[str(api / "profile.hurl"), str(shared / "auth.hurl")]
+        )
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "Resolved dependencies" not in out
+    assert out.index("SUCCESS: auth") < out.index("SUCCESS: profile")
+
+
+def test_no_deps_requires_explicit_dependency_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+
+    with patch("subprocess.run", return_value=ok()) as mock:
+        result = run_hurl_orchestrator(
+            files=[str(tmp_path / "profile.hurl")], resolve_deps=False
+        )
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "no .hurl file or alias defines id: auth" in out
+    mock.assert_not_called()
+
+
+def test_missing_requested_file_prints_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with patch("subprocess.run", return_value=ok()) as mock:
+        result = run_hurl_orchestrator(files=[str(tmp_path / "nope.hurl")])
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "ERROR: .hurl file not found" in out
+    assert "nope.hurl" in out
+    mock.assert_not_called()
+
+
+def test_dry_run_prints_plan_without_running(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "config.hurl", id="config")
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth", "config"])
+
+    with (
+        patch("shutil.which", return_value=None),
+        patch("subprocess.run") as mock_run,
+        patch("shutil.make_archive") as mock_archive,
+    ):
+        result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "Plan: 3 node(s)" in out
+    assert "wave 1: auth, config" in out
+    assert "wave 2: profile" in out
+    mock_run.assert_not_called()
+    mock_archive.assert_not_called()
+
+
+def test_dry_run_shows_resolved_dependencies_for_single_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+
+    with patch("subprocess.run") as mock_run:
+        run_hurl_orchestrator(files=[str(tmp_path / "profile.hurl")], dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "Resolved dependencies: auth" in out
+    assert "wave 1: auth" in out
+    assert "wave 2: profile" in out
+    mock_run.assert_not_called()
+
+
+def test_dry_run_reports_graph_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    assert result is False
+    assert "no .hurl file or alias defines id: auth" in capsys.readouterr().out
+
+
+def test_skipped_lists_every_failed_dependency(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a")
+    hurl_file(tmp_path / "b.hurl", id="b")
+    hurl_file(tmp_path / "c.hurl", id="c", deps=["a", "b"])
+
+    with patch("subprocess.run", return_value=fail()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "SKIPPED: c (failed dependency: a, b)" in capsys.readouterr().out
+
+
+def test_skip_cascades_through_transitive_dependents(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a")
+    hurl_file(tmp_path / "b.hurl", id="b", deps=["a"])
+    hurl_file(tmp_path / "c.hurl", id="c", deps=["b"])
+
+    with patch("subprocess.run", return_value=fail()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "SKIPPED: b (failed dependency: a)" in out
+    assert "SKIPPED: c (failed dependency: b)" in out
+
+
+def test_injected_variables_file_is_removed_after_step(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+
+    report = [{"entries": [{"captures": [{"name": "token", "value": "abc123"}]}]}]
+    variables_files: list[Path] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        for i, part in enumerate(cmd):
+            if part == "--variables-file":
+                variables_files.append(Path(cmd[i + 1]))
+            if part == "--report-json":
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert len(variables_files) == 1
+    assert not variables_files[0].exists()
+
+
+def test_cli_no_deps_flag() -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--no-deps", "a.hurl"]),
+    ):
+        main()
+    assert mock.call_args.kwargs["resolve_deps"] is False
+
+
+def test_cli_dry_run_flag() -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--dry-run", "./tests"]),
+    ):
+        main()
+    assert mock.call_args.kwargs["dry_run"] is True

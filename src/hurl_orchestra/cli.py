@@ -41,6 +41,20 @@ def main() -> None:
         help="Save CTRF JSON report to this file (default: disabled)",
     )
     parser.add_argument(
+        "--no-deps",
+        dest="resolve_deps",
+        action="store_false",
+        help=(
+            "Run only the listed .hurl files; do not pull their declared deps"
+            " from sibling files"
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the execution plan without running hurl.",
+    )
+    parser.add_argument(
         "--diagram",
         action="store_true",
         help=(
@@ -83,6 +97,8 @@ def main() -> None:
             extra_hurl_args=extra_hurl_args,
             report_zip=args.report_zip,
             report_ctrf=args.report_ctrf,
+            resolve_deps=args.resolve_deps,
+            dry_run=args.dry_run,
         )
     else:
         ok = run_hurl_orchestrator(
@@ -90,6 +106,8 @@ def main() -> None:
             extra_hurl_args=extra_hurl_args,
             report_zip=args.report_zip,
             report_ctrf=args.report_ctrf,
+            resolve_deps=args.resolve_deps,
+            dry_run=args.dry_run,
         )
 
     if not ok:
