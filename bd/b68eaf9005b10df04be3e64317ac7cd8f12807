@@ -1,0 +1,26 @@
+README.md
+  h_10734bb5353887 84,151,232,234-236,270,356-394,418,468-483
+src/hurl_orchestra/cli.py
+  h_10734bb5353887 57-64,110,120
+src/hurl_orchestra/ctrf.py
+  h_10734bb5353887 8-9,13-22,25,30,32-44,46-84,86,88-109,114-119,128-130,135-136,139-146,148-150,159-161,163,166,179-180,186-188
+src/hurl_orchestra/known_failures.py
+  h_10734bb5353887 1-276
+src/hurl_orchestra/orchestrator.py
+  h_10734bb5353887 10,13,18-24,36-52,170-176,241-266,275-276,279-280,316-321,325,332-333,346,357-378,386-387,390-392,397-399,405-407,433,437,443-444,448-450,453-457,459-469,539-541,652,662-664,666-667,691-698,704,714-720,734
+tests/test_known_failures.py
+  h_10734bb5353887 1-565
+tests/test_orchestrator.py
+  h_10734bb5353887 875,884,893,902,918,1073,1091,1109,1120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bdb68eaf9005b10df04be3e64317ac7cd8f12807",
+  "prompts": {},
+  "humans": {
+    "h_10734bb5353887": {
+      "author": "Cleiton Loiola <klaygomes@gmail.com>"
+    }
+  }
+}
