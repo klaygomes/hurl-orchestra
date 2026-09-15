@@ -872,7 +872,7 @@ def test_cli_defaults_to_current_directory() -> None:
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()
-    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
+    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
 
 
 def test_cli_passes_custom_directory_argument() -> None:
@@ -881,7 +881,7 @@ def test_cli_passes_custom_directory_argument() -> None:
         patch("sys.argv", ["hurl-orchestra", "/tmp/tests"]),
     ):
         main()
-    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
+    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
 
 
 def test_cli_passes_specific_hurl_files() -> None:
@@ -890,7 +890,7 @@ def test_cli_passes_specific_hurl_files() -> None:
         patch("sys.argv", ["hurl-orchestra", "a.hurl", "b.hurl"]),
     ):
         main()
-    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
+    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
 
 
 def test_cli_forwards_extra_hurl_args_with_directory() -> None:
@@ -899,7 +899,7 @@ def test_cli_forwards_extra_hurl_args_with_directory() -> None:
         patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
+    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
 
 
 def test_cli_forwards_extra_hurl_args_with_files() -> None:
@@ -915,6 +915,7 @@ def test_cli_forwards_extra_hurl_args_with_files() -> None:
         report_ctrf=None,
         resolve_deps=True,
         dry_run=False,
+        strict=False,
     )
 
 
@@ -1069,6 +1070,7 @@ def test_cli_double_dash_splits_hurl_args() -> None:
         report_ctrf=None,
         resolve_deps=True,
         dry_run=False,
+        strict=False,
     )
 
 
@@ -1086,6 +1088,7 @@ def test_cli_mixed_known_flags_and_double_dash() -> None:
         report_ctrf=None,
         resolve_deps=True,
         dry_run=False,
+        strict=False,
     )
 
 
@@ -1103,6 +1106,7 @@ def test_cli_boolean_passthrough_without_double_dash() -> None:
         report_ctrf=None,
         resolve_deps=True,
         dry_run=False,
+        strict=False,
     )
 
 
@@ -1113,7 +1117,7 @@ def test_cli_order_independent_known_flags() -> None:
         patch("sys.argv", ["hurl-orchestra", "--report-zip", "r.zip", "./tests"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None, resolve_deps=True, dry_run=False)
+    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
 
 
 def test_report_zip_in_cwd_when_no_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,13 +7,21 @@ import subprocess
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import frontmatter
 
 from .ctrf import write_ctrf
+from .known_failures import (
+    KnownFailure,
+    KnownFailureError,
+    KnownFailureMatch,
+    match_known_failure,
+    parse_known_failures,
+)
 
 
 class GraphError(Exception):
@@ -24,6 +32,23 @@ MAX_WORKERS = min(32, (os.cpu_count() or 1) + 4)
 
 Nodes = dict[str, dict[str, Any]]
 Graph = dict[str, set[str]]
+
+StepStatus = Literal["passed", "failed", "known_failure"]
+
+
+@dataclass
+class StepResult:
+    status: StepStatus
+    message: str
+    captures: dict[str, Any] = field(default_factory=dict)
+    known: KnownFailureMatch | None = None
+
+
+@dataclass
+class RunOutcome:
+    success: bool
+    tolerated: dict[str, KnownFailureMatch]
+    skipped_known: dict[str, str]
 
 
 def _validate_identifier(value: Any, description: str) -> str:
@@ -142,6 +167,13 @@ def _parse_args(args: Any, t_id: str) -> list[str]:
     return flat
 
 
+def _parse_known_failures(raw: Any, t_id: str) -> list[KnownFailure]:
+    try:
+        return parse_known_failures(raw, t_id)
+    except KnownFailureError as err:
+        raise GraphError(str(err)) from err
+
+
 def extract_captures(
     report_path: Path, target_outputs: list[str], node_id: str = ""
 ) -> dict[str, Any]:
@@ -206,6 +238,32 @@ def _collect_injected_variables(
     return injected
 
 
+def _failure(
+    node_id: str,
+    node: dict[str, Any],
+    detail: str,
+    node_report_dir: Path,
+    strict: bool,
+) -> StepResult:
+    message = f"FAILED: {node_id}\n{detail}"
+    if strict:
+        return StepResult("failed", message)
+    known, expired = match_known_failure(
+        node.get("known_failures", []), node_report_dir, detail
+    )
+    if known is not None:
+        return StepResult(
+            "known_failure",
+            f"KNOWN FAILURE: {node_id} [{known.failure.name}] "
+            f"{known.failure.reason}\n{detail}",
+            known=known,
+        )
+    for failure in expired:
+        until = failure.until.isoformat() if failure.until else ""
+        message += f"known failure '{failure.name}' expired on {until}\n"
+    return StepResult("failed", message)
+
+
 def run_step(
     node_id: str,
     node: dict[str, Any],
@@ -214,11 +272,12 @@ def run_step(
     global_args: list[str],
     extra_hurl_args: list[str],
     node_report_dir: Path,
-) -> tuple[bool, str, dict[str, Any]]:
+    strict: bool = False,
+) -> StepResult:
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
 
-    Returns ``(success, message, captured_outputs)`` where the caller can
-    update shared state.
+    A failure that matches one of the node's ``known_failures`` is reported as
+    ``known_failure`` unless *strict* is set.
     """
     injected = _collect_injected_variables(node_id, shared_vars, graph)
     report_file = node_report_dir / "report.json"
@@ -254,27 +313,28 @@ def run_step(
                 cwd=str(Path(node["path"]).parent),
             )
         except subprocess.TimeoutExpired:
-            return (
-                False,
-                f"FAILED: {node_id}\nHurl timed out after 300 seconds\n",
-                {},
+            return _failure(
+                node_id,
+                node,
+                "Hurl timed out after 300 seconds\n",
+                node_report_dir,
+                strict,
             )
 
     if result.returncode != 0:
-        return (False, f"FAILED: {node_id}\n{result.stderr}", {})
+        return _failure(node_id, node, result.stderr, node_report_dir, strict)
 
     captures = extract_captures(report_file, node.get("outputs", []), node_id)
     outputs: list[str] = node.get("outputs") or []
     missed = [o for o in outputs if o not in captures]
     if missed:
         actual = ", ".join(sorted(captures.keys())) or "none"
-        return (
-            False,
+        return StepResult(
+            "failed",
             (
                 f"FAILED: {node_id}\nMissing expected outputs: {', '.join(missed)}; "
                 f"reported outputs: {actual}\n"
             ),
-            {},
         )
 
     parts: list[str] = []
@@ -283,7 +343,7 @@ def run_step(
     if captures:
         parts.append(f"captured: {', '.join(captures)}")
     suffix = f" [{' | '.join(parts)}]" if parts else ""
-    return (True, f"SUCCESS: {node_id}{suffix}\n", captures)
+    return StepResult("passed", f"SUCCESS: {node_id}{suffix}\n", captures)
 
 
 def _ready_by_priority(sorter: TopologicalSorter[str], nodes: Nodes) -> list[str]:
@@ -294,6 +354,28 @@ def _ready_by_priority(sorter: TopologicalSorter[str], nodes: Nodes) -> list[str
     )
 
 
+def _skip_unrunnable(
+    node_id: str,
+    graph: Graph,
+    failed_nodes: set[str],
+    tolerated_nodes: set[str],
+    skipped_known: dict[str, str],
+) -> bool:
+    deps = graph.get(node_id, set())
+    failed_deps = sorted(dep for dep in deps if dep in failed_nodes)
+    if failed_deps:
+        failed_nodes.add(node_id)
+        print(f"SKIPPED: {node_id} (failed dependency: {', '.join(failed_deps)})")
+        return True
+    known_deps = sorted(dep for dep in deps if dep in tolerated_nodes)
+    if known_deps:
+        tolerated_nodes.add(node_id)
+        skipped_known[node_id] = ", ".join(known_deps)
+        print(f"SKIPPED: {node_id} (known failure upstream: {', '.join(known_deps)})")
+        return True
+    return False
+
+
 def _execute(
     nodes: Nodes,
     graph: Graph,
@@ -301,30 +383,29 @@ def _execute(
     global_args: list[str],
     extra: list[str],
     reports_path: Path,
-) -> bool:
+    strict: bool = False,
+) -> RunOutcome:
     """Run nodes in topological order, writing each report to *reports_path*.
 
-    Raises ``CycleError`` if a dependency cycle is detected.
-    Returns ``False`` as soon as a node fails, ``True`` if all succeed.
+    Raises ``CycleError`` if a dependency cycle is detected. A node whose
+    failure matches one of its ``known_failures`` does not fail the run; its
+    dependents are skipped without failing it either.
     """
     sorter = TopologicalSorter(graph)
     sorter.prepare()
     failed_nodes: set[str] = set()
+    tolerated_nodes: set[str] = set()
+    tolerated: dict[str, KnownFailureMatch] = {}
+    skipped_known: dict[str, str] = {}
     overall_success = True
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         while sorter.is_active():
             to_run: list[str] = []
             for node_id in _ready_by_priority(sorter, nodes):
-                failed_deps = sorted(
-                    dep for dep in graph.get(node_id, set()) if dep in failed_nodes
-                )
-                if failed_deps:
-                    failed_nodes.add(node_id)
+                if _skip_unrunnable(
+                    node_id, graph, failed_nodes, tolerated_nodes, skipped_known
+                ):
                     sorter.done(node_id)
-                    print(
-                        f"SKIPPED: {node_id} "
-                        f"(failed dependency: {', '.join(failed_deps)})"
-                    )
                 else:
                     to_run.append(node_id)
 
@@ -349,32 +430,43 @@ def _execute(
                         global_args,
                         extra,
                         reports_path / node_id,
+                        strict,
                     ): node_id
                     for node_id in group
                 }
-                results: dict[str, tuple[bool, str, dict[str, Any]]] = {}
+                results: dict[str, StepResult] = {}
                 for future in futures:
                     node_id = futures[future]
                     try:
                         results[node_id] = future.result()
                     except Exception as exc:
-                        results[node_id] = (
-                            False,
-                            f"FAILED: {node_id}\n{exc}\n",
-                            {},
+                        results[node_id] = StepResult(
+                            "failed", f"FAILED: {node_id}\n{exc}\n"
                         )
 
                 for node_id in group:
-                    success, message, captured = results[node_id]
-                    print(message, end="")
-                    if not success:
+                    step = results[node_id]
+                    print(step.message, end="")
+                    if step.status == "failed":
                         overall_success = False
                         failed_nodes.add(node_id)
-                    else:
-                        if captured:
-                            shared_vars[node_id] = captured
+                    elif step.status == "known_failure" and step.known is not None:
+                        tolerated_nodes.add(node_id)
+                        tolerated[node_id] = step.known
+                    elif step.captures:
+                        shared_vars[node_id] = step.captures
                     sorter.done(node_id)
-    return overall_success
+    return RunOutcome(overall_success, tolerated, skipped_known)
+
+
+def _print_tolerated_summary(tolerated: dict[str, KnownFailureMatch]) -> None:
+    if not tolerated:
+        return
+    by_name: dict[str, list[str]] = {}
+    for node_id in sorted(tolerated):
+        by_name.setdefault(tolerated[node_id].failure.name, []).append(node_id)
+    groups = "; ".join(f"{name}: {', '.join(ids)}" for name, ids in by_name.items())
+    print(f"Known failures tolerated: {len(tolerated)} ({groups})")
 
 
 def _validate_graph(nodes: Nodes, graph: Graph) -> None:
@@ -444,6 +536,9 @@ def load_templates(hurl_paths: list[Path]) -> Nodes:
                 "deps": _parse_deps(post.get("deps", []), t_id),
                 "priority": _parse_priority(post.get("priority", 0), t_id),
                 "hurl_args": _parse_args(post.get("args"), t_id),
+                "known_failures": _parse_known_failures(
+                    post.get("known_failures"), t_id
+                ),
             }
     return templates
 
@@ -554,6 +649,7 @@ def run_hurl_orchestrator(
     report_ctrf: str | None = None,
     resolve_deps: bool = True,
     dry_run: bool = False,
+    strict: bool = False,
 ) -> bool:
     """Discover, order, and execute ``.hurl`` files in dependency order.
 
@@ -563,10 +659,12 @@ def run_hurl_orchestrator(
     listed explicitly.  Any *extra_hurl_args* are forwarded verbatim to every
     hurl invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
     With *dry_run* the execution plan is printed and nothing is executed.
-    After execution a zip archive of all hurl reports is written to *report_zip*
-    in the current working directory.
+    With *strict* a failure matching a node's ``known_failures`` still fails the
+    run.  After execution a zip archive of all hurl reports is written to
+    *report_zip* in the current working directory.
 
-    Returns ``True`` if all steps succeeded, ``False`` otherwise.
+    Returns ``True`` if every step succeeded or was a tolerated known failure,
+    ``False`` otherwise.
     """
     if not dry_run and shutil.which("hurl") is None:
         print("ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev")
@@ -590,13 +688,20 @@ def run_hurl_orchestrator(
     with tempfile.TemporaryDirectory() as reports_root:
         start_ms = int(time.time() * 1000)
         try:
-            all_ok = _execute(
-                nodes, graph, shared_vars, global_args, extra, Path(reports_root)
+            outcome = _execute(
+                nodes,
+                graph,
+                shared_vars,
+                global_args,
+                extra,
+                Path(reports_root),
+                strict,
             )
         except CycleError as e:
             print(f"Circular dependency: {e}")
             return False
         stop_ms = int(time.time() * 1000)
+        _print_tolerated_summary(outcome.tolerated)
 
         if report_ctrf is not None:
             ctrf_path = (
@@ -606,7 +711,13 @@ def run_hurl_orchestrator(
             )
             try:
                 write_ctrf(
-                    list(nodes.keys()), Path(reports_root), ctrf_path, start_ms, stop_ms
+                    list(nodes.keys()),
+                    Path(reports_root),
+                    ctrf_path,
+                    start_ms,
+                    stop_ms,
+                    tolerated=outcome.tolerated,
+                    skipped_known=outcome.skipped_known,
                 )
                 print(f"CTRF report saved to {ctrf_path}")
             except OSError as exc:
@@ -620,4 +731,4 @@ def run_hurl_orchestrator(
         archive = shutil.make_archive(zip_base, "zip", reports_root)
         print(f"Report saved to {archive}")
 
-    return all_ok
+    return outcome.success

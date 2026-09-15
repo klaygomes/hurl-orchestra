@@ -81,6 +81,7 @@ Common frontmatter fields:
 * `deps` — list of upstream node IDs or alias definitions; optional
 * `priority` — optional integer that influences ordering within a ready wave
 * `args` — optional list of Hurl CLI flags specific to this file; strings are auto-prefixed (`verbose` → `--verbose`, `v` → `-v`), while single-key dicts become a flag/value pair (`connect-timeout: 30` → `--connect-timeout 30`)
+* `known_failures`: optional list of failure signatures this node may tolerate; see [Known failures](#known-failures)
 
 Example file structure:
 
@@ -147,6 +148,7 @@ hurl-orchestra                          # runs against the current directory
 hurl-orchestra ./tests                  # runs against a specific directory
 hurl-orchestra profile.hurl             # runs profile.hurl and its dependencies
 hurl-orchestra --dry-run ./tests        # prints the execution plan only
+hurl-orchestra --strict ./tests         # known_failures fail the run like any other failure
 ```
 
 ### Passing Hurl Flags
@@ -227,7 +229,11 @@ Each node prints exactly one line as it finishes:
 
 * `SUCCESS: <id> [injected: ... | captured: ...]`
 * `FAILED: <id>` followed by the Hurl error output
+* `KNOWN FAILURE: <id> [<name>] <reason>` followed by the Hurl error output, for a failure that matched one of the node's `known_failures`
 * `SKIPPED: <id> (failed dependency: <ids>)` for nodes that never ran because an upstream node failed
+* `SKIPPED: <id> (known failure upstream: <ids>)` for nodes that never ran because an upstream node was tolerated and produced no outputs
+
+When anything was tolerated, one summary line closes the run: `Known failures tolerated: 2 (db_pool_exhausted: create_order, update_order)`.
 
 Upstream outputs are handed to Hurl through a private, per-run `--variables-file` rather than `--variable` flags, so captured values such as tokens never appear in the process list.
 
@@ -261,7 +267,7 @@ Use `--report-ctrf` to also generate a [CTRF](https://github.com/ctrf-io/ctrf) J
 hurl-orchestra ./tests --report-ctrf results.json
 ```
 
-Each hurl entry becomes one test in the report. Nodes that were skipped because an upstream dependency failed appear with `status: skipped`; nodes that errored at the subprocess level appear with `status: failed`.
+Each hurl entry becomes one test in the report. Nodes that were skipped because an upstream dependency failed appear with `status: skipped`; nodes that errored at the subprocess level appear with `status: failed`. A tolerated known failure appears with `status: other`, `flaky: true`, its declaration name in `tags` and the matched signature in `message`, and `summary.other` counts it, so the reporter's flaky view groups occurrences by name without inflating the failed count. Nodes skipped behind it are `status: skipped` with `known failure upstream: <id>` as the message.
 
 Add the reporter step to your GitHub Actions workflow after running the orchestrator:
 
@@ -347,6 +353,45 @@ priority: -1  # runs last
 
 Priority only affects ordering **within** the same wave. It never overrides actual `deps` — a node always waits for its dependencies regardless of its priority value.
 
+### Known failures
+
+Some failures are understood, documented, and not worth a red run: a shared test database that hits its connection limit under load, a third-party sandbox that times out on Mondays. `known_failures` lets a node declare such a signature. When the node fails and the failure matches, it is reported as `KNOWN FAILURE` instead of `FAILED`, the run stays green, and its dependents are skipped because they have no inputs.
+
+```yaml
+---
+id: create_order
+outputs: [order_id]
+known_failures:
+  - name: db_pool_exhausted
+    reason: Shared test database at its connection limit
+    until: 2026-12-31
+    link: https://example.com/runbooks/test-db-pool
+    status: 500
+    header:
+      name: X-Error-Code
+      pattern: '^ERR-DB-\d+$'
+---
+POST https://api.example.com/orders
+HTTP 200
+```
+
+Each entry needs a `name` (used in the console, the summary and the CTRF `tags`) and a `reason`, plus at least one signature field. Every signature field that is set must match:
+
+| Field | Matches against |
+|-------|-----------------|
+| `status` | the status code of the last response Hurl recorded for the node |
+| `header` | a response header on that last response: `name` is compared case-insensitively, `pattern` is a regex searched in its value |
+| `body` | a regex searched in that last response's body |
+| `stderr` | a regex searched in Hurl's error output, the only field that can match when no response was received |
+
+With `[Options] retry: N` Hurl records one call per attempt; the last one is the failure, so that is the one inspected.
+
+`until` is optional. After that date the entry stops matching, the failure is reported normally, and the output says `known failure '<name>' expired on <date>`, so a tolerance carries its own review date. `link` is free text for wherever the failure is documented.
+
+Pass `--strict` to make every known failure fail the run again. That is how you find out whether a flake has actually gone away.
+
+Entries are validated when files are discovered. A missing `name` or `reason`, an entry with no signature field, an invalid regex, an unparseable `until`, or two entries with the same name in one node stop the run before anything executes.
+
 ### Global Environment (`.env`)
 
 The orchestrator looks for a `.env` file in the directory passed as argument (or the current working directory when none is given). Variables defined here are available to **all** Hurl files without being declared in the frontmatter.
@@ -370,7 +415,7 @@ When you run `hurl-orchestra`, the tool performs the following steps:
    * Within each wave, nodes are sorted by `priority` (highest first).
    * Captures output variables into a shared pool.
    * Injects required variables into downstream tests via Hurl's `--variable` flag.
-   * **Stops immediately** if any test fails to prevent cascade failures.
+   * Skips the dependents of any node that failed or was tolerated as a known failure, since they have no inputs to run with. Unrelated nodes keep running.
 
 ---
 
@@ -419,6 +464,22 @@ A single Hurl execution took longer than the built-in 5-minute timeout. Either o
 ### "FAILED: <node_id>\n<stderr from hurl>"
 
 The Hurl command itself failed. This is usually a failed assertion, invalid request, or runtime error inside the `.hurl` file. Use the Hurl error output to fix the failing test.
+
+### "KNOWN FAILURE: <node_id> [<name>] ..."
+
+The node failed, and the failure matched one of its declared `known_failures`. The run is not marked failed. Hurl's error output follows the line so the evidence stays in the log; the CTRF report carries the entry name in `tags`. Run with `--strict` to make it fail again, or remove the entry once the underlying cause is fixed.
+
+### "SKIPPED: <node_id> (known failure upstream: ...)"
+
+An upstream node was tolerated as a known failure and produced no outputs, so this node had nothing to run with. It does not fail the run. Fix or wait out the upstream flake.
+
+### "FAILED: <node_id>\nknown failure '<name>' expired on <date>"
+
+The failure would have matched a declared entry, but that entry's `until` date has passed. Either the flake is still real and the date needs moving with a fresh justification, or the tolerance should be removed.
+
+### "ERROR: known_failures[<i>] for '<node_id>' ..."
+
+A `known_failures` entry is malformed: missing `name` or `reason`, no signature field, an invalid regex, a non-date `until`, or a duplicated name. Nothing runs until it is fixed.
 
 ### "FAILED: <node_id>\nMissing expected outputs: ..."
 

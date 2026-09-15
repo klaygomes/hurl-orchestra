@@ -55,6 +55,14 @@ def main() -> None:
         help="Print the execution plan without running hurl.",
     )
     parser.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Treat failures that match a node's known_failures as real failures"
+            " instead of tolerating them."
+        ),
+    )
+    parser.add_argument(
         "--diagram",
         action="store_true",
         help=(
@@ -99,6 +107,7 @@ def main() -> None:
             report_ctrf=args.report_ctrf,
             resolve_deps=args.resolve_deps,
             dry_run=args.dry_run,
+            strict=args.strict,
         )
     else:
         ok = run_hurl_orchestrator(
@@ -108,6 +117,7 @@ def main() -> None:
             report_ctrf=args.report_ctrf,
             resolve_deps=args.resolve_deps,
             dry_run=args.dry_run,
+            strict=args.strict,
         )
 
     if not ok:
