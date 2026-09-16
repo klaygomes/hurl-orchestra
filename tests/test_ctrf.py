@@ -11,7 +11,7 @@ import pytest
 
 from hurl_orchestra import build_ctrf
 from hurl_orchestra.cli import main
-from hurl_orchestra.ctrf import write_ctrf
+from hurl_orchestra.ctrf import _condense, write_ctrf
 from hurl_orchestra.orchestrator import run_hurl_orchestrator
 
 
@@ -23,16 +23,19 @@ START_MS = 1_700_000_000_000
 STOP_MS = 1_700_000_005_000
 
 
-def _make_report(entries: list[dict]) -> list[dict]:
-    return [{"filename": "-", "entries": entries, "success": all(e.get("success", True) for e in entries), "time": sum(e.get("time", 0) for e in entries)}]
+def _make_report(entries: list[dict], *, success: bool | None = None) -> list[dict]:
+    if success is None:
+        success = all(a.get("success", True) for e in entries for a in e.get("asserts", []))
+    return [{"filename": "-", "entries": entries, "success": success, "time": sum(e.get("time", 0) for e in entries)}]
 
 
-def _passed_entry(line: int = 1, time_ms: int = 100) -> dict:
-    return {"index": 1, "line": line, "calls": [], "captures": [], "asserts": [{"line": line, "success": True, "type": "status", "actual": "200", "expected": "200"}], "time": time_ms, "success": True}
+def _passed_entry(line: int = 1, time_ms: int = 100, index: int = 1) -> dict:
+    """An entry as hurl actually emits it: success lives on asserts, not here."""
+    return {"index": index, "line": line, "calls": [], "captures": [], "asserts": [{"line": line, "success": True, "type": "status", "actual": "200", "expected": "200"}], "time": time_ms}
 
 
-def _failed_entry(line: int = 5, time_ms: int = 200) -> dict:
-    return {"index": 1, "line": line, "calls": [], "captures": [], "asserts": [{"line": line, "success": False, "type": "status", "actual": "404", "expected": "200"}], "time": time_ms, "success": False}
+def _failed_entry(line: int = 5, time_ms: int = 200, index: int = 1) -> dict:
+    return {"index": index, "line": line, "calls": [], "captures": [], "asserts": [{"line": line, "success": False, "type": "status", "actual": "404", "expected": "200"}], "time": time_ms}
 
 
 def ok() -> CompletedProcess[str]:
@@ -108,7 +111,7 @@ def test_build_ctrf_failed_entry_has_message(tmp_path: Path) -> None:
     assert "expected=200" in tests[0]["message"]
 
 
-def test_build_ctrf_failed_entry_no_asserts_has_no_message(tmp_path: Path) -> None:
+def test_build_ctrf_honours_explicit_entry_success_when_present(tmp_path: Path) -> None:
     entry = {"index": 1, "line": 1, "calls": [], "captures": [], "asserts": [], "time": 100, "success": False}
     node_dir = tmp_path / "ping"
     node_dir.mkdir()
@@ -190,6 +193,140 @@ def test_write_ctrf_creates_parent_dirs(tmp_path: Path) -> None:
 
     write_ctrf(["ping"], tmp_path, output, START_MS, STOP_MS)
     assert output.exists()
+
+
+# ---------------------------------------------------------------------------
+# Regression: hurl reports success per assert and per file, never per entry
+# ---------------------------------------------------------------------------
+
+
+def test_failed_entry_without_entry_level_success_is_reported_failed(tmp_path: Path) -> None:
+    node_dir = tmp_path / "ping"
+    node_dir.mkdir()
+    (node_dir / "report.json").write_text(json.dumps(_make_report([_failed_entry()])))
+
+    report = build_ctrf(["ping"], tmp_path, START_MS, STOP_MS)
+
+    assert report["results"]["summary"]["failed"] == 1
+    assert report["results"]["summary"]["passed"] == 0
+    assert report["results"]["tests"][0]["status"] == "failed"
+
+
+def test_retry_attempts_collapse_to_the_last_attempt(tmp_path: Path) -> None:
+    node_dir = tmp_path / "flaky"
+    node_dir.mkdir()
+    attempts = [_failed_entry(line=3, index=1), _passed_entry(line=3, index=1)]
+    (node_dir / "report.json").write_text(json.dumps(_make_report(attempts, success=True)))
+
+    report = build_ctrf(["flaky"], tmp_path, START_MS, STOP_MS)
+
+    assert report["results"]["summary"]["tests"] == 1
+    assert report["results"]["summary"]["failed"] == 0
+    assert report["results"]["tests"][0]["status"] == "passed"
+
+
+def test_exhausted_retries_report_one_failure(tmp_path: Path) -> None:
+    node_dir = tmp_path / "flaky"
+    node_dir.mkdir()
+    attempts = [_failed_entry(index=1), _failed_entry(index=1), _failed_entry(index=1)]
+    (node_dir / "report.json").write_text(json.dumps(_make_report(attempts)))
+
+    report = build_ctrf(["flaky"], tmp_path, START_MS, STOP_MS)
+
+    assert report["results"]["summary"]["tests"] == 1
+    assert report["results"]["summary"]["failed"] == 1
+
+
+def test_distinct_requests_are_kept_separate(tmp_path: Path) -> None:
+    node_dir = tmp_path / "chain"
+    node_dir.mkdir()
+    entries = [_passed_entry(line=1, index=1), _failed_entry(line=9, index=2)]
+    (node_dir / "report.json").write_text(json.dumps(_make_report(entries)))
+
+    report = build_ctrf(["chain"], tmp_path, START_MS, STOP_MS)
+
+    summary = report["results"]["summary"]
+    assert summary["tests"] == 2
+    assert summary["passed"] == 1
+    assert summary["failed"] == 1
+
+
+def test_file_failed_without_failing_assert_is_never_all_green(tmp_path: Path) -> None:
+    node_dir = tmp_path / "ping"
+    node_dir.mkdir()
+    entry = {"index": 1, "line": 1, "calls": [], "captures": [], "asserts": [], "time": 10}
+    (node_dir / "report.json").write_text(json.dumps(_make_report([entry], success=False)))
+
+    report = build_ctrf(["ping"], tmp_path, START_MS, STOP_MS)
+
+    assert report["results"]["summary"]["failed"] == 1
+    assert any("failed" in t.get("message", "") for t in report["results"]["tests"])
+
+
+def test_file_succeeded_stays_green(tmp_path: Path) -> None:
+    node_dir = tmp_path / "ping"
+    node_dir.mkdir()
+    (node_dir / "report.json").write_text(json.dumps(_make_report([_passed_entry()])))
+
+    report = build_ctrf(["ping"], tmp_path, START_MS, STOP_MS)
+
+    assert report["results"]["summary"]["failed"] == 0
+    assert report["results"]["summary"]["passed"] == 1
+
+
+def test_condense_status_assert_message() -> None:
+    message = (
+        'Assert status code\n  --> t.hurl:3:6\n   |\n'
+        '   | GET https://example.invalid\n   | ...\n'
+        ' 3 | HTTP 599\n   |      ^^^ actual value is <200>\n   |'
+    )
+    assert _condense(message) == (
+        "Assert status code: HTTP 599 (actual value is <200>)"
+    )
+
+
+def test_condense_jsonpath_assert_message() -> None:
+    message = (
+        'Assert failure\n  --> t.hurl:5:0\n   |\n'
+        '   | GET https://example.invalid\n   | ...\n'
+        ' 5 | jsonpath "$.country" == "XX"\n'
+        '   |   actual:   string <SE>\n'
+        '   |   expected: string <XX>\n   |'
+    )
+    assert _condense(message) == (
+        'Assert failure: jsonpath "$.country" == "XX" '
+        "(actual: string <SE>, expected: string <XX>)"
+    )
+
+
+def test_real_hurl_assert_message_reaches_the_report(tmp_path: Path) -> None:
+    entry = {
+        "index": 1,
+        "line": 3,
+        "calls": [],
+        "captures": [],
+        "asserts": [
+            {"line": 3, "success": True},
+            {
+                "line": 3,
+                "success": False,
+                "message": (
+                    'Assert status code\n  --> t.hurl:3:6\n   |\n'
+                    ' 3 | HTTP 200\n   |      ^^^ actual value is <500>\n   |'
+                ),
+            },
+        ],
+        "time": 10,
+    }
+    node_dir = tmp_path / "ping"
+    node_dir.mkdir()
+    (node_dir / "report.json").write_text(json.dumps(_make_report([entry])))
+
+    report = build_ctrf(["ping"], tmp_path, START_MS, STOP_MS)
+
+    test = report["results"]["tests"][0]
+    assert test["status"] == "failed"
+    assert test["message"] == "Assert status code: HTTP 200 (actual value is <500>)"
 
 
 # ---------------------------------------------------------------------------
