@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+from .response import body_text, header_value, last_response
 
 
 class KnownFailureError(ValueError):
@@ -184,42 +185,6 @@ def parse_known_failures(raw: Any, node_id: str) -> list[KnownFailure]:
     return failures
 
 
-def _last_response(report_path: Path) -> dict[str, Any] | None:
-    if not report_path.exists():
-        return None
-    try:
-        data = json.loads(report_path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-    files = data if isinstance(data, list) else [data]
-    for file_result in reversed(files):
-        for entry in reversed(file_result.get("entries", [])):
-            for call in reversed(entry.get("calls", [])):
-                response = call.get("response")
-                if isinstance(response, dict):
-                    return response
-    return None
-
-
-def _header_value(response: dict[str, Any], name: str) -> str | None:
-    wanted = name.lower()
-    for header in response.get("headers", []):
-        if str(header.get("name", "")).lower() == wanted:
-            return str(header.get("value", ""))
-    return None
-
-
-def _body_text(response: dict[str, Any], report_dir: Path) -> str | None:
-    body = response.get("body")
-    if not isinstance(body, str) or not body:
-        return None
-    body_path = report_dir / body
-    try:
-        return body_path.read_text(errors="replace")
-    except OSError:
-        return None
-
-
 def _matches(
     failure: KnownFailure,
     response: dict[str, Any] | None,
@@ -233,13 +198,13 @@ def _matches(
         matched.append(f"status {failure.status}")
     if failure.header_pattern is not None and failure.header_name is not None:
         value = (
-            None if response is None else _header_value(response, failure.header_name)
+            None if response is None else header_value(response, failure.header_name)
         )
         if value is None or not failure.header_pattern.search(value):
             return None
         matched.append(f"header {failure.header_name}={value}")
     if failure.body_pattern is not None:
-        text = None if response is None else _body_text(response, report_dir)
+        text = None if response is None else body_text(response, report_dir)
         if text is None or not failure.body_pattern.search(text):
             return None
         matched.append(f"body ~ /{failure.body_pattern.pattern}/")
@@ -264,7 +229,7 @@ def match_known_failure(
     if not failures:
         return None, []
     today = today or date.today()
-    response = _last_response(report_dir / "report.json")
+    response = last_response(report_dir / "report.json")
     expired: list[KnownFailure] = []
     for failure in failures:
         if failure.is_expired(today):

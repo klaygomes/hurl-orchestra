@@ -82,6 +82,7 @@ Common frontmatter fields:
 * `priority` — optional integer that influences ordering within a ready wave
 * `args` — optional list of Hurl CLI flags specific to this file; strings are auto-prefixed (`verbose` → `--verbose`, `v` → `-v`), while single-key dicts become a flag/value pair (`connect-timeout: 30` → `--connect-timeout 30`)
 * `known_failures`: optional list of failure signatures this node may tolerate; see [Known failures](#known-failures)
+* `retry`: optional exponential backoff policy for this node; see [Retries and back pressure](#retries-and-back-pressure)
 
 Example file structure:
 
@@ -391,6 +392,64 @@ With `[Options] retry: N` Hurl records one call per attempt; the last one is the
 Pass `--strict` to make every known failure fail the run again. That is how you find out whether a flake has actually gone away.
 
 Entries are validated when files are discovered. A missing `name` or `reason`, an entry with no signature field, an invalid regex, an unparseable `until`, or two entries with the same name in one node stop the run before anything executes.
+
+### Retries and back pressure
+
+Hurl's own `[Options] retry` re-attempts a single request on a fixed
+`retry-interval`. A service shedding load needs the opposite: a delay that
+grows, is spread across concurrent callers, and yields to an explicit
+`Retry-After`. `retry` declares that for the whole node.
+
+```yaml
+---
+id: create_order
+retry:
+  attempts: 4
+  backoff_ms: 500
+  max_backoff_ms: 20000
+  multiplier: 2
+  jitter: full
+  when:
+    - status: 429
+    - status: 503
+---
+POST https://api.example.com/orders
+HTTP 201
+```
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `attempts` | `1` | Total attempts including the first. `1` disables retrying. |
+| `backoff_ms` | `1000` | Base delay. |
+| `max_backoff_ms` | `30000` | Cap on any single wait, including one asked for by `Retry-After`. |
+| `multiplier` | `2` | Growth factor per attempt. |
+| `jitter` | `full` | `full` spreads the wait over `[0, window]`; `none` waits the full window. |
+| `respect_retry_after` | `true` | Honour a `Retry-After` response header over the computed backoff. |
+| `when` | any failure | One signature, or a list; the node is retried only when one matches. |
+
+The wait after attempt *n* is `min(max_backoff_ms, backoff_ms * multiplier^(n-1))`,
+then jittered. Full jitter is the default because nodes that backed off together
+would otherwise retry together and reproduce the burst that throttled them.
+
+`when` takes the same signature fields as `known_failures` (`status`, `header`,
+`body`, `stderr`), minus the bookkeeping. Without it every failure is retried,
+which is rarely what you want: a genuine assertion failure is not back pressure,
+and retrying it four times just makes a red run slow. `stderr` is the only field
+that matches when no response arrived, so it is the one for connection errors.
+
+`Retry-After` wins over the computed backoff when present, in both its
+delta-seconds and HTTP-date forms, because the server has said what it wants. It
+is still capped by `max_backoff_ms`, so a mistaken `Retry-After: 86400` cannot
+stall the suite.
+
+Retries re-run the whole node, so `report.json` is reset between attempts and
+only the final one reaches the report. A node that recovered reports as one
+passing test, and its console line records how many attempts it took.
+
+This composes with `known_failures`: retries are exhausted first, and the
+surviving failure is then matched for tolerance. It also composes with hurl's
+own `[Options] retry`, which is usually not what you want, since the two
+multiply.
 
 ### Global Environment (`.env`)
 

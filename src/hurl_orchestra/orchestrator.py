@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from graphlib import CycleError, TopologicalSorter
@@ -22,6 +23,7 @@ from .known_failures import (
     match_known_failure,
     parse_known_failures,
 )
+from .retry import RetryError, RetryPolicy, parse_retry, response_for
 
 
 class GraphError(Exception):
@@ -174,6 +176,13 @@ def _parse_known_failures(raw: Any, t_id: str) -> list[KnownFailure]:
         raise GraphError(str(err)) from err
 
 
+def _parse_retry(raw: Any, t_id: str) -> RetryPolicy:
+    try:
+        return parse_retry(raw, t_id)
+    except RetryError as err:
+        raise GraphError(str(err)) from err
+
+
 def extract_captures(
     report_path: Path, target_outputs: list[str], node_id: str = ""
 ) -> dict[str, Any]:
@@ -264,6 +273,37 @@ def _failure(
     return StepResult("failed", message)
 
 
+def _run_hurl(
+    node: dict[str, Any],
+    cmd: list[str],
+) -> tuple[int, str] | None:
+    """Run hurl once. Returns (returncode, stderr), or None on timeout."""
+    try:
+        result = subprocess.run(
+            cmd,
+            input=node["content"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=300,
+            cwd=str(Path(node["path"]).parent),
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    return result.returncode, result.stderr
+
+
+def _reset_report_dir(node_report_dir: Path) -> None:
+    """Leave only the final attempt's report behind.
+
+    hurl appends to report.json, so without this a retried node would carry its
+    earlier attempts into the CTRF report and show failures it recovered from.
+    """
+    shutil.rmtree(node_report_dir, ignore_errors=True)
+    node_report_dir.mkdir(parents=True, exist_ok=True)
+
+
 def run_step(
     node_id: str,
     node: dict[str, Any],
@@ -273,14 +313,17 @@ def run_step(
     extra_hurl_args: list[str],
     node_report_dir: Path,
     strict: bool = False,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> StepResult:
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
 
     A failure that matches one of the node's ``known_failures`` is reported as
-    ``known_failure`` unless *strict* is set.
+    ``known_failure`` unless *strict* is set. A failure that matches the node's
+    ``retry`` policy is attempted again after an exponential backoff.
     """
     injected = _collect_injected_variables(node_id, shared_vars, graph)
     report_file = node_report_dir / "report.json"
+    policy: RetryPolicy = node.get("retry") or RetryPolicy()
     cmd = [
         "hurl",
         "--test",
@@ -291,38 +334,50 @@ def run_step(
         str(node_report_dir),
     ]
 
-    # Injected values travel through a private file so captured secrets
-    # never appear in the process list.
-    with tempfile.TemporaryDirectory() as private_dir:
-        if injected:
-            variables_file = Path(private_dir) / "variables.env"
-            variables_file.write_text(
-                "".join(f"{name}={value}\n" for name, value in injected.items())
-            )
-            cmd.extend(["--variables-file", str(variables_file)])
+    notes: list[str] = []
+    attempt = 1
 
-        try:
-            result = subprocess.run(
-                cmd,
-                input=node["content"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-                timeout=300,
-                cwd=str(Path(node["path"]).parent),
-            )
-        except subprocess.TimeoutExpired:
+    while True:
+        # Injected values travel through a private file so captured secrets
+        # never appear in the process list.
+        with tempfile.TemporaryDirectory() as private_dir:
+            attempt_cmd = list(cmd)
+            if injected:
+                variables_file = Path(private_dir) / "variables.env"
+                variables_file.write_text(
+                    "".join(f"{name}={value}\n" for name, value in injected.items())
+                )
+                attempt_cmd.extend(["--variables-file", str(variables_file)])
+
+            outcome = _run_hurl(node, attempt_cmd)
+
+        if outcome is None:
+            detail = "Hurl timed out after 300 seconds\n"
+            returncode, stderr = 1, detail
+        else:
+            returncode, stderr = outcome
+            detail = stderr
+
+        if returncode == 0:
+            break
+
+        response = response_for(node_report_dir)
+        if not policy.should_retry(attempt, response, node_report_dir, stderr):
             return _failure(
-                node_id,
-                node,
-                "Hurl timed out after 300 seconds\n",
-                node_report_dir,
-                strict,
+                node_id, node, "".join(notes) + detail, node_report_dir, strict
             )
 
-    if result.returncode != 0:
-        return _failure(node_id, node, result.stderr, node_report_dir, strict)
+        delay_ms = policy.delay_ms(attempt, response)
+        status = (
+            "no response" if response is None else f"status {response.get('status')}"
+        )
+        notes.append(
+            f"RETRY: {node_id} attempt {attempt}/{policy.attempts} failed "
+            f"({status}), waiting {delay_ms}ms\n"
+        )
+        sleep(delay_ms / 1000)
+        attempt += 1
+        _reset_report_dir(node_report_dir)
 
     captures = extract_captures(report_file, node.get("outputs", []), node_id)
     outputs: list[str] = node.get("outputs") or []
@@ -342,8 +397,12 @@ def run_step(
         parts.append(f"injected: {', '.join(injected)}")
     if captures:
         parts.append(f"captured: {', '.join(captures)}")
+    if attempt > 1:
+        parts.append(f"{attempt} attempts")
     suffix = f" [{' | '.join(parts)}]" if parts else ""
-    return StepResult("passed", f"SUCCESS: {node_id}{suffix}\n", captures)
+    return StepResult(
+        "passed", "".join(notes) + f"SUCCESS: {node_id}{suffix}\n", captures
+    )
 
 
 def _ready_by_priority(sorter: TopologicalSorter[str], nodes: Nodes) -> list[str]:
@@ -539,6 +598,7 @@ def load_templates(hurl_paths: list[Path]) -> Nodes:
                 "known_failures": _parse_known_failures(
                     post.get("known_failures"), t_id
                 ),
+                "retry": _parse_retry(post.get("retry"), t_id),
             }
     return templates
 
