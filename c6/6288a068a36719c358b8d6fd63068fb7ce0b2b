@@ -1,0 +1,24 @@
+README.md
+  h_10734bb5353887 85,396-453
+src/hurl_orchestra/known_failures.py
+  h_10734bb5353887 11-12,201,207,232
+src/hurl_orchestra/orchestrator.py
+  h_10734bb5353887 9,26,179-185,276-306,316,321-322,326,337-350,352-365,367,370-380,400-401,403-405,601
+src/hurl_orchestra/response.py
+  h_10734bb5353887 1-44
+src/hurl_orchestra/retry.py
+  h_10734bb5353887 1-304
+tests/test_retry.py
+  h_10734bb5353887 1-375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c66288a068a36719c358b8d6fd63068fb7ce0b2b",
+  "prompts": {},
+  "humans": {
+    "h_10734bb5353887": {
+      "author": "Cleiton Loiola <klaygomes@gmail.com>"
+    }
+  }
+}
