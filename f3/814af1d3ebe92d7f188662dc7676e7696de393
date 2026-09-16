@@ -1,0 +1,18 @@
+README.md
+  h_10734bb5353887 270
+src/hurl_orchestra/ctrf.py
+  h_10734bb5353887 6,13-15,29,35-97,104,139-140,149-152,154,162-163,166,170,177-187
+tests/test_ctrf.py
+  h_10734bb5353887 14,26-29,32-34,37-38,114,198-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f3814af1d3ebe92d7f188662dc7676e7696de393",
+  "prompts": {},
+  "humans": {
+    "h_10734bb5353887": {
+      "author": "Cleiton Loiola <klaygomes@gmail.com>"
+    }
+  }
+}
