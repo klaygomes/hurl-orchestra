@@ -167,22 +167,17 @@
 
 .hh__install {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin-top: 22px;
-  padding: 10px 12px 10px 16px;
+  padding: 8px 8px 8px 16px;
   border: 1px solid var(--vp-c-divider);
   border-radius: 14px;
   background: var(--vp-c-bg-alt);
   font-family: var(--vp-font-family-mono);
   font-size: 14px;
   color: var(--vp-c-text-1);
-  cursor: copy;
-  transition: border-color var(--ecf-duration-fast) var(--ecf-ease-out);
-}
-
-.hh__install:hover {
-  border-color: var(--vp-c-brand-1);
 }
 
 .hh__ps1 {
@@ -193,14 +188,62 @@
   color: var(--ecf-yellow);
 }
 
-.hh__copy-state {
-  min-width: 56px;
-  padding: 3px 8px;
-  border-radius: 8px;
+.hh__clipboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 9px;
   background: var(--vp-c-brand-soft);
   font-family: var(--ecf-font-label);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--vp-c-brand-1);
+  transition:
+    transform var(--ecf-duration-fast) var(--ecf-ease-out),
+    background-color var(--ecf-duration-fast) var(--ecf-ease-out);
+}
+
+.hh__clipboard svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.hh__clipboard:hover {
+  transform: translateY(-1px);
+}
+
+.hh__clipboard:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+.hh__clipboard--ai {
+  color: var(--ecf-purple-900);
+  background: linear-gradient(110deg, var(--ecf-yellow), #ffe675 45%, #f7b6cf);
+  box-shadow: 0 6px 16px -8px rgba(198, 63, 117, 0.7);
+}
+
+.hh__clipboard--ai svg {
+  fill: currentColor;
+  stroke: none;
+}
+
+.hh__clipboard--ai:hover svg {
+  animation: hh-twinkle 700ms var(--ecf-ease-spring);
+}
+
+.hh__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .hh__stage {
@@ -961,6 +1004,12 @@
   }
 }
 
+@keyframes hh-twinkle {
+  45% {
+    transform: scale(1.3) rotate(25deg);
+  }
+}
+
 @keyframes hh-marker {
   to {
     background-size: 100% 78%;
@@ -1072,6 +1121,7 @@
   }
 
   .hh__install code {
+    flex: 1 1 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
