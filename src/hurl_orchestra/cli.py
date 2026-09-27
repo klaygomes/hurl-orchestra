@@ -13,8 +13,8 @@ def _resolve_hurl_paths(paths: list[str]) -> list[Path]:
     return [Path(p) for p in paths]
 
 
-def main() -> None:
-    """Entry point for the ``hurl-orchestra`` CLI command."""
+def build_parser() -> argparse.ArgumentParser:
+    """Return the argument parser of the ``hurl-orchestra`` CLI command."""
     parser = argparse.ArgumentParser(
         prog="hurl-orchestra",
         description="Run hurl test files in dependency order.",
@@ -24,63 +24,77 @@ def main() -> None:
         nargs="*",
         default=["."],
         help=(
-            "Directory containing .hurl files, or one or more .hurl files to run"
-            " (default: current directory)"
+            "A directory with .hurl files, or one or more .hurl files."
+            " The default is the current directory."
         ),
     )
     parser.add_argument(
         "--report-zip",
         default="report.zip",
         metavar="FILE",
-        help="Save all hurl reports to this zip file (default: report.zip)",
+        help="Write the hurl reports of all nodes to this zip file.",
     )
     parser.add_argument(
         "--report-ctrf",
         default=None,
         metavar="FILE",
-        help="Save CTRF JSON report to this file (default: disabled)",
+        help="Also write a CTRF JSON report to this file.",
+    )
+    parser.add_argument(
+        "--env-file",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Give this variables file to each hurl call. The default is .env in"
+            " the given directory, or in the current directory for files."
+        ),
     )
     parser.add_argument(
         "--no-deps",
         dest="resolve_deps",
         action="store_false",
         help=(
-            "Run only the listed .hurl files; do not pull their declared deps"
-            " from sibling files"
+            "Run only the listed .hurl files. Do not add their declared deps"
+            " from the same directory."
         ),
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the execution plan without running hurl.",
+        help="Show the execution plan. Do not run hurl.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="With --dry-run, write the plan as JSON for scripts and AI agents.",
     )
     parser.add_argument(
         "--strict",
         action="store_true",
-        help=(
-            "Treat failures that match a node's known_failures as real failures"
-            " instead of tolerating them."
-        ),
+        help="Make a failure that matches known_failures fail the run.",
     )
     parser.add_argument(
         "--diagram",
         action="store_true",
-        help=(
-            "Generate a Mermaid diagram of the dependency graph"
-            " instead of running tests."
-        ),
+        help="Write a Mermaid diagram of the graph. Do not run the tests.",
     )
     parser.add_argument(
         "--diagram-output",
         default="diagram.md",
         metavar="FILE",
-        help="Output file for the diagram (default: diagram.md). Use '-' for stdout.",
+        help="Write the diagram to this file. Use '-' for stdout.",
     )
     parser.add_argument(
         "--diagram-overwrite",
         action="store_true",
-        help="Overwrite diagram output if it already exists.",
+        help="Replace the diagram file if it exists.",
     )
+    return parser
+
+
+def main() -> None:
+    """Entry point for the ``hurl-orchestra`` CLI command."""
+    parser = build_parser()
     raw = sys.argv[1:]
     if "--" in raw:
         idx = raw.index("--")
@@ -89,17 +103,22 @@ def main() -> None:
         own_args, passthrough = raw, []
 
     args, leftover = parser.parse_known_args(own_args)
+    if args.json and not args.dry_run:
+        parser.error("--json needs --dry-run")
     extra_hurl_args = leftover + passthrough
 
     paths: list[str] = args.paths
+
+    directory_mode = len(paths) == 1 and not paths[0].endswith(".hurl")
 
     if args.diagram:
         ok = write_diagram(
             _resolve_hurl_paths(paths),
             output=args.diagram_output,
             overwrite=args.diagram_overwrite,
+            resolve_deps=args.resolve_deps and not directory_mode,
         )
-    elif len(paths) == 1 and not paths[0].endswith(".hurl"):
+    elif directory_mode:
         ok = run_hurl_orchestrator(
             paths[0],
             extra_hurl_args=extra_hurl_args,
@@ -108,6 +127,8 @@ def main() -> None:
             resolve_deps=args.resolve_deps,
             dry_run=args.dry_run,
             strict=args.strict,
+            json_plan=args.json,
+            env_file=args.env_file,
         )
     else:
         ok = run_hurl_orchestrator(
@@ -118,6 +139,8 @@ def main() -> None:
             resolve_deps=args.resolve_deps,
             dry_run=args.dry_run,
             strict=args.strict,
+            json_plan=args.json,
+            env_file=args.env_file,
         )
 
     if not ok:

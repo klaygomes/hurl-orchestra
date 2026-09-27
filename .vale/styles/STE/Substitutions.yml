@@ -1,0 +1,32 @@
+extends: substitution
+message: "Use '%s' instead of '%s'."
+link: https://github.com/klaygomes/hurl-orchestra/blob/main/CONTRIBUTING.md#write-in-simplified-technical-english
+level: error
+ignorecase: true
+swap:
+  a number of: some
+  additional: more
+  approximately: about
+  ascertain: find
+  assist: help
+  commence: start
+  due to the fact that: because
+  e\.g\.: for example
+  endeavou?r: try
+  ensure: make sure
+  facilitate: help
+  i\.e\.: that is
+  in addition to: and
+  in order to: to
+  in the event that: if
+  initiate: start
+  numerous: many
+  obtain: get
+  perform: do
+  prior to: before
+  subsequently: then
+  sufficient: enough
+  terminate: stop
+  utili[sz]e: use
+  via: through
+  whilst: while

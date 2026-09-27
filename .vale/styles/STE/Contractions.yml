@@ -1,0 +1,10 @@
+extends: existence
+message: "Do not use the contraction '%s'. Write the full words."
+link: https://github.com/klaygomes/hurl-orchestra/blob/main/CONTRIBUTING.md#write-in-simplified-technical-english
+level: error
+ignorecase: true
+nonword: true
+tokens:
+  - \b\w+n['’]t\b
+  - \b\w+['’](?:re|ve|ll|d|m)\b
+  - \b(?:it|that|there|here|what|who|where|when|how|let|she|he)['’]s\b

@@ -36,3 +36,11 @@ build/
 .claude/
 memory/
 
+
+# Documentation
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+.vale/styles/*
+!.vale/styles/STE
+!.vale/styles/config

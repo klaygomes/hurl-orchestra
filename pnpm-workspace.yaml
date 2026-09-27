@@ -1,0 +1,3 @@
+allowBuilds:
+  '@vvago/vale': true
+  esbuild: true

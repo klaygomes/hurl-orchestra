@@ -1,0 +1,7 @@
+extends: occurrence
+message: "Use a maximum of 6 sentences in a paragraph."
+link: https://github.com/klaygomes/hurl-orchestra/blob/main/CONTRIBUTING.md#write-in-simplified-technical-english
+level: error
+scope: paragraph
+max: 6
+token: '[.!?](?=\s|$)'

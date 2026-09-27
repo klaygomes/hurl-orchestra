@@ -872,7 +872,7 @@ def test_cli_defaults_to_current_directory() -> None:
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()
-    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
+    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
 
 
 def test_cli_passes_custom_directory_argument() -> None:
@@ -881,7 +881,7 @@ def test_cli_passes_custom_directory_argument() -> None:
         patch("sys.argv", ["hurl-orchestra", "/tmp/tests"]),
     ):
         main()
-    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
+    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
 
 
 def test_cli_passes_specific_hurl_files() -> None:
@@ -890,7 +890,7 @@ def test_cli_passes_specific_hurl_files() -> None:
         patch("sys.argv", ["hurl-orchestra", "a.hurl", "b.hurl"]),
     ):
         main()
-    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
+    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
 
 
 def test_cli_forwards_extra_hurl_args_with_directory() -> None:
@@ -899,7 +899,7 @@ def test_cli_forwards_extra_hurl_args_with_directory() -> None:
         patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
+    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
 
 
 def test_cli_forwards_extra_hurl_args_with_files() -> None:
@@ -916,6 +916,8 @@ def test_cli_forwards_extra_hurl_args_with_files() -> None:
         resolve_deps=True,
         dry_run=False,
         strict=False,
+        json_plan=False,
+        env_file=None,
     )
 
 
@@ -1071,6 +1073,8 @@ def test_cli_double_dash_splits_hurl_args() -> None:
         resolve_deps=True,
         dry_run=False,
         strict=False,
+        json_plan=False,
+        env_file=None,
     )
 
 
@@ -1089,6 +1093,8 @@ def test_cli_mixed_known_flags_and_double_dash() -> None:
         resolve_deps=True,
         dry_run=False,
         strict=False,
+        json_plan=False,
+        env_file=None,
     )
 
 
@@ -1107,6 +1113,8 @@ def test_cli_boolean_passthrough_without_double_dash() -> None:
         resolve_deps=True,
         dry_run=False,
         strict=False,
+        json_plan=False,
+        env_file=None,
     )
 
 
@@ -1117,7 +1125,7 @@ def test_cli_order_independent_known_flags() -> None:
         patch("sys.argv", ["hurl-orchestra", "--report-zip", "r.zip", "./tests"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False)
+    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
 
 
 def test_report_zip_in_cwd_when_no_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1382,3 +1390,219 @@ def test_cli_dry_run_flag() -> None:
     ):
         main()
     assert mock.call_args.kwargs["dry_run"] is True
+
+
+def test_cli_diagram_of_files_resolves_deps(tmp_path: Path) -> None:
+    target = str(tmp_path / "profile.hurl")
+    with (
+        patch("hurl_orchestra.cli.write_diagram", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--diagram", target]),
+    ):
+        main()
+    assert mock.call_args.kwargs["resolve_deps"] is True
+
+
+def test_cli_diagram_of_files_respects_no_deps(tmp_path: Path) -> None:
+    target = str(tmp_path / "profile.hurl")
+    with (
+        patch("hurl_orchestra.cli.write_diagram", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--diagram", "--no-deps", target]),
+    ):
+        main()
+    assert mock.call_args.kwargs["resolve_deps"] is False
+
+
+def test_cli_diagram_of_directory_does_not_resolve(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.write_diagram", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--diagram", str(tmp_path)]),
+    ):
+        main()
+    assert mock.call_args.kwargs["resolve_deps"] is False
+
+
+def test_dry_run_json_prints_the_plan_as_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "config.hurl", id="config", priority=2)
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth", "config"])
+
+    with (
+        patch("shutil.which", return_value=None),
+        patch("subprocess.run") as mock_run,
+    ):
+        result = run_hurl_orchestrator(str(tmp_path), dry_run=True, json_plan=True)
+
+    plan = json.loads(capsys.readouterr().out)
+    assert result is True
+    assert plan["ok"] is True
+    assert plan["waves"] == [["config", "auth"], ["profile"]]
+    profile = next(node for node in plan["nodes"] if node["id"] == "profile")
+    assert profile["deps"] == ["auth", "config"]
+    assert profile["variables"] == ["auth_token"]
+    assert profile["file"] == str(tmp_path / "profile.hurl")
+    mock_run.assert_not_called()
+
+
+def test_dry_run_json_keeps_stdout_pure_when_deps_resolve(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+
+    result = run_hurl_orchestrator(
+        files=[str(tmp_path / "profile.hurl")], dry_run=True, json_plan=True
+    )
+
+    plan = json.loads(capsys.readouterr().out)
+    assert result is True
+    assert plan["resolved"] == ["auth"]
+    assert plan["waves"] == [["auth"], ["profile"]]
+
+
+def test_dry_run_json_reports_graph_errors_as_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["missing"])
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True, json_plan=True)
+
+    document = json.loads(capsys.readouterr().out)
+    assert result is False
+    assert document["ok"] is False
+    assert "missing" in document["error"]
+
+
+def test_dry_run_json_lists_known_failures_and_retry(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "order.hurl").write_text(
+        "---\n"
+        "id: order\n"
+        "retry:\n  attempts: 3\n"
+        "known_failures:\n"
+        "  - name: pool\n    reason: shared db\n    status: 500\n"
+        "---\n"
+    )
+
+    run_hurl_orchestrator(str(tmp_path), dry_run=True, json_plan=True)
+
+    node = json.loads(capsys.readouterr().out)["nodes"][0]
+    assert node["known_failures"] == ["pool"]
+    assert node["retry_attempts"] == 3
+
+
+def test_cli_json_without_dry_run_is_an_error(tmp_path: Path) -> None:
+    with (
+        patch("sys.argv", ["hurl-orchestra", "--json", str(tmp_path)]),
+        pytest.raises(SystemExit) as exit_info,
+    ):
+        main()
+    assert exit_info.value.code == 2
+
+
+def test_cli_passes_json_plan_to_the_orchestrator(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--dry-run", "--json", str(tmp_path)]),
+    ):
+        main()
+    assert mock.call_args.kwargs["json_plan"] is True
+
+
+def test_run_prints_the_variables_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".env").write_text("base_url=https://example.com")
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    with patch("subprocess.run", return_value=ok()):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert f"Variables file: {tmp_path / '.env'}" in capsys.readouterr().out
+
+
+def test_files_mode_notes_an_unread_env_next_to_the_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    sub = tmp_path / "tests"
+    sub.mkdir()
+    (sub / ".env").write_text("base_url=https://example.com")
+    hurl_file(sub / "ping.hurl", id="ping")
+    captured: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        captured.extend(cmd)
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(files=[str(sub / "ping.hurl")])
+
+    out = capsys.readouterr().out
+    assert "--variables-file" not in captured
+    assert f"NOTE: hurl-orchestra does not read {sub / '.env'}" in out
+    assert f"--env-file {sub / '.env'}" in out
+
+
+def test_explicit_env_file_wins_and_silences_the_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("base_url=https://cwd.example.com")
+    sub = tmp_path / "tests"
+    sub.mkdir()
+    (sub / ".env").write_text("base_url=https://tests.example.com")
+    hurl_file(sub / "ping.hurl", id="ping")
+    captured: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        captured.extend(cmd)
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(
+            files=[str(sub / "ping.hurl")], env_file=str(sub / ".env")
+        )
+
+    out = capsys.readouterr().out
+    assert str(sub / ".env") in captured
+    assert str(tmp_path / ".env") not in captured
+    assert "NOTE:" not in out
+
+
+def test_missing_explicit_env_file_stops_the_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    with patch("subprocess.run") as mock_run:
+        result = run_hurl_orchestrator(
+            str(tmp_path), env_file=str(tmp_path / "nope.env")
+        )
+
+    assert result is False
+    assert "ERROR: env file not found" in capsys.readouterr().out
+    mock_run.assert_not_called()
+
+
+def test_dry_run_json_names_the_env_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".env").write_text("base_url=https://example.com")
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    run_hurl_orchestrator(str(tmp_path), dry_run=True, json_plan=True)
+
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["env_file"] == str(tmp_path / ".env")
+
+
+def test_cli_passes_env_file(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch("sys.argv", ["hurl-orchestra", "--env-file", "ci.env", str(tmp_path)]),
+    ):
+        main()
+    assert mock.call_args.kwargs["env_file"] == "ci.env"

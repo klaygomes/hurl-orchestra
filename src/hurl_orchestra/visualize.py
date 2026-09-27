@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .orchestrator import GraphError, build_graph
+from .orchestrator import GraphError, build_graph, resolve_files
 
 _ESCAPE_MAP = str.maketrans(
     {
@@ -92,12 +92,20 @@ def _render_flowchart(
     return "\n".join(lines)
 
 
-def build_diagram(hurl_paths: list[Path], orientation: str = "LR") -> str:
+def build_diagram(
+    hurl_paths: list[Path], orientation: str = "LR", resolve_deps: bool = False
+) -> str:
     """Build the full Markdown diagram string from *hurl_paths*.
+
+    With *resolve_deps* the paths are treated as requested files, and their
+    declared ``deps`` are added from sibling files, as a run does.
 
     Raises ``GraphError`` if graph construction fails.
     """
-    nodes, graph = build_graph(hurl_paths)
+    if resolve_deps:
+        nodes, graph, _ = resolve_files(hurl_paths)
+    else:
+        nodes, graph = build_graph(hurl_paths)
 
     safe_ids = _safe_id_map(nodes.keys())
     flowchart = _render_flowchart(nodes, graph, safe_ids, orientation)
@@ -114,13 +122,14 @@ def write_diagram(
     hurl_paths: list[Path],
     output: str = "diagram.md",
     overwrite: bool = False,
+    resolve_deps: bool = False,
 ) -> bool:
     """Generate the Mermaid diagram and write it to *output*.
 
     Pass ``'-'`` as *output* to write to stdout. Returns ``False`` on error.
     """
     try:
-        content = build_diagram(hurl_paths)
+        content = build_diagram(hurl_paths, resolve_deps=resolve_deps)
     except (GraphError, OSError) as exc:
         logger.error("Diagram generation failed: %s", exc)
         return False
