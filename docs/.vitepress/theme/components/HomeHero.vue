@@ -12,13 +12,26 @@ const video = ref<HTMLVideoElement>();
 const underline = ref<SVGPathElement>();
 const source = ref('');
 const playing = ref(false);
-const copied = ref(false);
+const copied = ref<'' | 'command' | 'prompt'>('');
 const calm = ref(false);
 let frame = 0;
 let watcher = 0;
 
 const still = withBase('/mascot/conductor.webp');
 const install = 'pip install hurl-orchestra';
+const prompt = [
+  'Set up end-to-end API tests for this project with hurl-orchestra.',
+  '',
+  '1. Read the documentation first: https://www.estacouveflor.com/hurl-orchestra/llms-full.txt',
+  '2. Install Hurl (https://hurl.dev/docs/installation.html) and run: pip install hurl-orchestra',
+  '3. In tests/, write one .hurl file for each step of a user flow, for example login, add to cart and pay.',
+  '   Declare the steps that must pass first in `deps` and the values to share in `outputs`.',
+  '4. Check the plan: hurl-orchestra --dry-run --json --env-file .env tests',
+  '5. Run the tests: hurl-orchestra --env-file .env tests --report-ctrf results.json',
+  '6. Read tests/results.json, fix each failure or report the API defect, and run again.',
+  '',
+  'Keep URLs and secrets in a .env file, for example at the project root, and never in the .hurl files.',
+].join('\n');
 
 function readSeen(): boolean {
   try {
@@ -83,11 +96,13 @@ function ended() {
   giveCue();
 }
 
-async function copy() {
+async function copy(what: 'command' | 'prompt') {
   try {
-    await navigator.clipboard.writeText(install);
-    copied.value = true;
-    setTimeout(() => (copied.value = false), 1600);
+    await navigator.clipboard.writeText(what === 'command' ? install : prompt);
+    copied.value = what;
+    setTimeout(() => {
+      if (copied.value === what) copied.value = '';
+    }, 1800);
   } catch {}
 }
 
@@ -154,11 +169,31 @@ onBeforeUnmount(() => {
         <a class="hh__button hh__button--brand" :href="withBase('/guide/getting-started')">Get started</a>
         <a class="hh__button" :href="withBase('/how-to/work-with-ai-agents')">Use it with your AI assistant</a>
       </div>
-      <button type="button" class="hh__install rise" style="--d: 5" :aria-label="`Copy: ${install}`" @click="copy">
+      <div class="hh__install rise" style="--d: 5">
         <span class="hh__ps1" aria-hidden="true">$</span>
         <code>{{ install }}</code>
-        <span class="hh__copy-state" aria-live="polite">{{ copied ? 'Copied' : 'Copy' }}</span>
-      </button>
+        <button type="button" class="hh__clipboard" :aria-label="`Copy the command: ${install}`" @click="copy('command')">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="8" y="8" width="12" height="12" rx="2.5" />
+            <path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8" />
+          </svg>
+          {{ copied === 'command' ? 'Copied' : 'Copy' }}
+        </button>
+        <button
+          type="button"
+          class="hh__clipboard hh__clipboard--ai"
+          aria-label="Copy a setup prompt for your AI assistant"
+          title="Copy a setup prompt for Claude Code, Codex, Cursor or any AI assistant"
+          @click="copy('prompt')"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2.5c.6 4.6 2.9 6.9 7.5 7.5-4.6.6-6.9 2.9-7.5 7.5-.6-4.6-2.9-6.9-7.5-7.5 4.6-.6 6.9-2.9 7.5-7.5Z" />
+            <path d="M19 15.5c.25 1.9 1.1 2.75 3 3-1.9.25-2.75 1.1-3 3-.25-1.9-1.1-2.75-3-3 1.9-.25 2.75-1.1 3-3Z" />
+          </svg>
+          {{ copied === 'prompt' ? 'Copied' : 'Copy for AI' }}
+        </button>
+        <span class="hh__sr" aria-live="polite">{{ copied ? 'Copied to the clipboard' : '' }}</span>
+      </div>
     </div>
 
     <div class="hh__stage">
