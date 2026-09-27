@@ -83,6 +83,46 @@
   color: var(--vp-c-text-1);
 }
 
+.hh__ai {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+  line-height: 1.3;
+  padding: 0 4px;
+  margin: 0 -2px;
+  border-radius: 6px;
+  font-family: var(--ecf-font-display);
+  font-weight: 600;
+  color: var(--ecf-purple-900);
+  background: linear-gradient(100deg, rgba(250, 211, 11, 0.85), rgba(250, 211, 11, 0.55)) no-repeat 0 60% / 100% 78%;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.dark .hh__ai {
+  color: var(--ecf-purple-900);
+}
+
+.hh__spark {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 16px;
+  height: 16px;
+  fill: var(--ecf-magenta);
+  pointer-events: none;
+}
+
+.dark .hh__spark {
+  fill: var(--ecf-yellow);
+}
+
+.hh__ai:hover {
+  background-image: linear-gradient(100deg, rgba(250, 211, 11, 0.95), rgba(198, 63, 117, 0.45), rgba(250, 211, 11, 0.95));
+  background-size: 200% 78%;
+  animation: hh-shimmer 1.2s linear infinite;
+}
+
 .hh__actions {
   display: flex;
   flex-wrap: wrap;
@@ -884,6 +924,21 @@
     animation-delay: calc(var(--ecf-intro-step) * 7);
   }
 
+  .hh__ai {
+    background-size: 0% 78%;
+    animation:
+      hh-marker 520ms var(--ecf-ease-out) forwards,
+      hh-ai-pop 520ms var(--ecf-ease-spring);
+    animation-delay: calc(var(--ecf-intro-step) * 11), calc(var(--ecf-intro-step) * 11 + 400ms);
+  }
+
+  .hh__spark {
+    opacity: 0;
+    transform: scale(0);
+    animation: hh-spark 900ms var(--ecf-ease-spring) forwards;
+    animation-delay: calc(var(--ecf-intro-step) * 11 + 360ms);
+  }
+
   .hh__stage {
     animation: hh-pop calc(var(--ecf-duration-slow) * 1.3) var(--ecf-ease-spring) both;
     animation-delay: calc(var(--ecf-intro-step) * 4);
@@ -903,6 +958,46 @@
   .hh__conductor {
     transform: none;
     transition: none;
+  }
+}
+
+@keyframes hh-marker {
+  to {
+    background-size: 100% 78%;
+  }
+}
+
+@keyframes hh-ai-pop {
+  0%,
+  100% {
+    transform: none;
+  }
+  45% {
+    transform: scale(1.12) rotate(-2deg);
+  }
+}
+
+@keyframes hh-spark {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(0);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.5) rotate(60deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(90deg);
+  }
+}
+
+@keyframes hh-shimmer {
+  from {
+    background-position: 0% 60%;
+  }
+  to {
+    background-position: 200% 60%;
   }
 }
 
