@@ -1,0 +1,49 @@
+extends: existence
+message: "Do not use the phrasal verb '%s'. Use one verb with one meaning."
+link: https://github.com/klaygomes/hurl-orchestra/blob/main/CONTRIBUTING.md#write-in-simplified-technical-english
+level: error
+ignorecase: true
+tokens:
+  - (?:back|backs|backed)\s+up
+  - (?:break|breaks|broke|broken)\s+down
+  - (?:bring|brings|brought)\s+(?:up|about)
+  - (?:carry|carries|carried)\s+out
+  - (?:check|checks|checked)\s+out
+  - (?:clean|cleans|cleaned)\s+up
+  - (?:come|comes|came)\s+(?:back|up|across)
+  - (?:cut|cuts)\s+off
+  - (?:end|ends|ended)\s+up
+  - (?:figure|figures|figured)\s+out
+  - (?:fill|fills|filled)\s+(?:in|out)
+  - (?:find|finds|found)\s+out
+  - (?:get|gets|got)\s+(?:rid|back|out|up)
+  - (?:give|gives|gave|given)\s+up
+  - (?:go|goes|went|gone)\s+(?:through|out|back)
+  - (?:hand|hands|handed)\s+over
+  - (?:hold|holds|held)\s+on
+  - (?:keep|keeps|kept)\s+up
+  - (?:leave|leaves|left)\s+out
+  - (?:log|logs|logged)\s+(?:in|out)
+  - (?:look|looks|looked)\s+(?:up|into|over)
+  - (?:make|makes|made)\s+up
+  - (?:pick|picks|picked)\s+up
+  - (?:plug|plugs|plugged)\s+in
+  - (?:point|points|pointed)\s+out
+  - (?:put|puts)\s+off
+  - (?:rule|rules|ruled)\s+out
+  - (?:run|runs|ran)\s+into
+  - (?:set|sets)\s+(?:up|off)
+  - (?:show|shows|showed|shown)\s+up
+  - (?:shut|shuts)\s+down
+  - (?:sign|signs|signed)\s+(?:up|in)
+  - (?:slow|slows|slowed)\s+down
+  - (?:sort|sorts|sorted)\s+out
+  - (?:speed|speeds|sped)\s+up
+  - (?:start|starts|started)\s+up
+  - (?:switch|switches|switched)\s+(?:on|off)
+  - (?:take|takes|took|taken)\s+(?:over|off)
+  - (?:try|tries|tried)\s+out
+  - (?:turn|turns|turned)\s+(?:on|off|up|down|out)
+  - (?:wipe|wipes|wiped)\s+out
+  - (?:work|works|worked)\s+out
+  - (?:write|writes|wrote|written)\s+down

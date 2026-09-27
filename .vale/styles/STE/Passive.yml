@@ -1,0 +1,10 @@
+extends: existence
+message: "Use the active voice. Change '%s' so that the subject does the action."
+link: https://github.com/klaygomes/hurl-orchestra/blob/main/CONTRIBUTING.md#write-in-simplified-technical-english
+level: error
+ignorecase: true
+raw:
+  - \b(?:am|is|are|was|were|be|been|being)\s+
+  - (?:(?:not|also|then|now|only|always|never|automatically|already|still)\s+)?
+  - (?!(?:bed|embed|feed|need|red|seed|shed|speed|hundred|sacred|wicked|naked|ready|used to)\b)
+  - (?:\w+ed|arisen|awoken|beaten|become|begun|bent|bitten|blown|born|borne|bought|bound|bred|broken|brought|built|burnt|caught|chosen|come|cut|dealt|done|drawn|driven|dug|eaten|fallen|felt|fought|found|flown|forbidden|forgotten|forgiven|frozen|given|gone|grown|heard|held|hidden|hit|hung|hurt|kept|known|laid|led|left|lent|let|lit|lost|made|meant|met|overridden|paid|put|quit|read|rewritten|ridden|risen|run|said|seen|sent|set|shaken|shot|shown|shut|sold|sought|spent|split|spoken|spread|stolen|struck|stuck|sung|sunk|swept|sworn|taken|taught|thrown|told|thought|torn|understood|undone|upheld|withdrawn|won|worn|written|wound)\b

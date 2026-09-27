@@ -1,0 +1,7 @@
+extends: occurrence
+message: "Use a maximum of 25 words in a sentence. Use a maximum of 20 words in a procedure."
+link: https://github.com/klaygomes/hurl-orchestra/blob/main/CONTRIBUTING.md#write-in-simplified-technical-english
+level: error
+scope: sentence
+max: 25
+token: \b[\w'’-]+\b

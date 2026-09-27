@@ -36,3 +36,42 @@ jobs:
         with:
           name: coverage
           path: coverage.xml
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install the package
+        run: pip install -e .
+
+      - name: Check the CLI table
+        run: |
+          python scripts/cli_reference.py
+          git diff --exit-code -- docs/reference/cli.generated.md
+
+      - name: Validate the documentation samples
+        run: |
+          for dir in docs/snippets/*/; do
+            case "$dir" in *ci/|*agents/) continue;; esac
+            hurl-orchestra --dry-run "$dir" > /dev/null
+          done
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint prose
+        run: node_modules/.bin/vale CONTRIBUTING.md docs
+
+      - name: Build the documentation
+        run: pnpm docs:build

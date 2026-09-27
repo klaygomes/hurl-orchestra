@@ -3,7 +3,7 @@
 VENV := .venv
 BIN  := $(VENV)/bin
 
-.PHONY: lint format typecheck test check build publish publish-test
+.PHONY: lint format typecheck test check build publish publish-test docs docs-cli docs-check
 
 lint:
 	$(BIN)/ruff check src
@@ -28,3 +28,17 @@ publish-test: build
 
 publish: build
 	$(BIN)/twine upload dist/*
+
+docs:
+	pnpm docs:dev
+
+docs-cli:
+	$(BIN)/python scripts/cli_reference.py
+
+docs-check: docs-cli
+	for dir in docs/snippets/*/; do \
+		case $$dir in *ci/|*agents/) continue;; esac; \
+		$(BIN)/hurl-orchestra --dry-run $$dir > /dev/null || exit 1; \
+	done
+	node_modules/.bin/vale CONTRIBUTING.md docs
+	pnpm docs:build

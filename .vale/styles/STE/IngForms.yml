@@ -1,0 +1,32 @@
+extends: existence
+message: "Do not use the -ing form '%s'. Use a different verb form, a noun or a technical name."
+link: https://github.com/klaygomes/hurl-orchestra/blob/main/CONTRIBUTING.md#write-in-simplified-technical-english
+level: error
+ignorecase: true
+tokens:
+  - \w{2,}ing
+exceptions:
+  - (?i)anything
+  - (?i)coding
+  - (?i)binding
+  - (?i)bring
+  - (?i)ceiling
+  - (?i)during
+  - (?i)everything
+  - (?i)king
+  - (?i)nothing
+  - (?i)padding
+  - (?i)polling
+  - (?i)rendering
+  - (?i)ring
+  - (?i)sibling
+  - (?i)smoothing
+  - (?i)something
+  - (?i)spring
+  - (?i)string
+  - (?i)swing
+  - (?i)testing
+  - (?i)thing
+  - (?i)troubleshooting
+  - (?i)warning
+  - (?i)wing
