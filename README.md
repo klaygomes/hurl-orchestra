@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://www.estacouveflor.com/hurl-orchestra/logo-animated.svg" width="240" height="187" alt="A cauliflower conductor beats time while a dependency graph lights up one wave at a time">
+<img src="https://www.estacouveflor.com/hurl-orchestra/logo-animated.svg?v=0.11.0" width="240" height="187" alt="A cauliflower conductor beats time while a dependency graph lights up one wave at a time">
 
 # hurl-orchestra
 
@@ -11,8 +11,8 @@ Test your API from login to checkout. Write each step as a small text file, and 
 
 <a href="https://www.estacouveflor.com/hurl-orchestra/#the-score">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://www.estacouveflor.com/hurl-orchestra/readme/score-dark.webp">
-    <img src="https://www.estacouveflor.com/hurl-orchestra/readme/score-light.webp" alt="The interactive score: create_cart fails, add_item and checkout are skipped, catalog still passes, and the terminal ends with exit code 1" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="https://www.estacouveflor.com/hurl-orchestra/readme/score-dark.webp?v=0.11.0">
+    <img src="https://www.estacouveflor.com/hurl-orchestra/readme/score-light.webp?v=0.11.0" alt="The interactive score: create_cart fails, add_item and checkout are skipped, catalog still passes, and the terminal ends with exit code 1" width="100%">
   </picture>
 </a>
 
