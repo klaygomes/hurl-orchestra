@@ -310,3 +310,32 @@ def test_write_diagram_allows_existing_file_with_overwrite(tmp_path: Path) -> No
     ok = write_diagram(sorted(tmp_path.glob("*.hurl")), output=str(out), overwrite=True)
     assert ok is True
     assert "## Flowchart" in out.read_text()
+
+
+def test_build_diagram_resolves_deps_of_requested_files(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    hurl_file(tmp_path / "unrelated.hurl", id="unrelated")
+    diagram = build_diagram([tmp_path / "profile.hurl"], resolve_deps=True)
+    assert "auth [out:1]" in diagram
+    assert "profile [out:0]" in diagram
+    assert "unrelated" not in diagram
+
+
+def test_build_diagram_without_resolution_needs_every_dep(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    with pytest.raises(GraphError):
+        build_diagram([tmp_path / "profile.hurl"])
+
+
+def test_write_diagram_resolves_deps_to_stdout_without_log_lines(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth")
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    ok = write_diagram([tmp_path / "profile.hurl"], output="-", resolve_deps=True)
+    out = capsys.readouterr().out
+    assert ok is True
+    assert out.startswith("# hurl-orchestra dependency diagram")
+    assert "Resolved dependencies" not in out

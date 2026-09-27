@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "hurl-orchestra"
 dynamic = ["version"]
-description = "Run hurl test files in dependency order using frontmatter metadata"
+description = "AI first API automation testing: run Hurl files as a dependency graph"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -23,6 +23,11 @@ classifiers = [
 dependencies = [
     "python-frontmatter>=1.0.0",
 ]
+
+[project.urls]
+Documentation = "https://www.estacouveflor.com/hurl-orchestra/"
+Source = "https://github.com/klaygomes/hurl-orchestra"
+Issues = "https://github.com/klaygomes/hurl-orchestra/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -42,6 +47,17 @@ source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hurl_orchestra"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/docs",
+    "/.vale",
+    "/.vale.ini",
+    "/package.json",
+    "/pnpm-lock.yaml",
+    "/pnpm-workspace.yaml",
+    "/codedb.snapshot",
+]
 
 [tool.ruff]
 line-length = 88

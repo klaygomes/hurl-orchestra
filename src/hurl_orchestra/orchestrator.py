@@ -225,16 +225,38 @@ def extract_captures(
     return captures
 
 
-def get_global_args(test_dir: Path) -> list[str]:
+def find_env_file(test_dir: Path, env_file: str | None = None) -> Path | None:
+    """Return the variables file that every hurl call receives, if any.
+
+    An explicit *env_file* wins. Otherwise it is ``.env`` in *test_dir*: the
+    directory given on the command line, or the current directory when files
+    are given.
+    """
+    if env_file is not None:
+        return Path(env_file)
+    candidate = test_dir / ".env"
+    return candidate if candidate.exists() else None
+
+
+def unused_env_files(files: list[str], chosen: Path | None) -> list[Path]:
+    """Return ``.env`` files next to *files* that the run will not read."""
+    parents = sorted({Path(f).parent for f in files})
+    chosen_path = chosen.resolve() if chosen is not None else None
+    return [
+        parent / ".env"
+        for parent in parents
+        if (parent / ".env").exists() and (parent / ".env").resolve() != chosen_path
+    ]
+
+
+def get_global_args(test_dir: Path, env_file: str | None = None) -> list[str]:
     """Return hurl CLI arguments derived from global config in *test_dir*.
 
-    Detects a ``.env`` file and passes it via ``--variables-file``.
+    Passes the variables file from :func:`find_env_file` via
+    ``--variables-file``.
     """
-    args: list[str] = []
-    env_file = test_dir / ".env"
-    if env_file.exists():
-        args.extend(["--variables-file", str(env_file)])
-    return args
+    found = find_env_file(test_dir, env_file)
+    return ["--variables-file", str(found)] if found is not None else []
 
 
 def _collect_injected_variables(
@@ -665,39 +687,85 @@ def _requested_ids(templates: Nodes, requested: list[Path]) -> set[str]:
     }
 
 
-def _print_plan(nodes: Nodes, graph: Graph) -> None:
+def plan_waves(nodes: Nodes, graph: Graph) -> list[list[str]]:
+    """Return the node ids of each wave, in execution order."""
     sorter = TopologicalSorter(graph)
     sorter.prepare()
-    print(f"Plan: {len(nodes)} node(s)")
-    wave = 0
+    waves: list[list[str]] = []
     while sorter.is_active():
-        wave += 1
         ready = _ready_by_priority(sorter, nodes)
-        print(f"  wave {wave}: {', '.join(ready)}")
+        waves.append(ready)
         sorter.done(*ready)
+    return waves
 
 
-def _resolve_nodes(
-    test_dir: Path, files: list[str] | None, resolve_deps: bool
-) -> tuple[Nodes, Graph]:
-    if files is None:
-        return build_graph(sorted(test_dir.glob("*.hurl")))
+def plan_document(
+    nodes: Nodes,
+    graph: Graph,
+    resolved: list[str] | None = None,
+    env_file: Path | None = None,
+) -> dict[str, Any]:
+    """Describe the execution plan as a JSON-serialisable document."""
+    return {
+        "ok": True,
+        "env_file": str(env_file) if env_file is not None else None,
+        "resolved": resolved or [],
+        "waves": plan_waves(nodes, graph),
+        "nodes": [
+            {
+                "id": node_id,
+                "file": node["path"],
+                "deps": sorted(graph.get(node_id, set())),
+                "outputs": node.get("outputs", []),
+                "variables": sorted(
+                    _hurl_variable_name(dep_id, output)
+                    for dep_id in graph.get(node_id, set())
+                    for output in nodes[dep_id].get("outputs", [])
+                ),
+                "priority": node["priority"],
+                "known_failures": [f.name for f in node.get("known_failures", [])],
+                "retry_attempts": (node.get("retry") or RetryPolicy()).attempts,
+            }
+            for node_id, node in sorted(nodes.items())
+        ],
+    }
 
-    requested = [Path(f) for f in files]
+
+def _print_plan(nodes: Nodes, graph: Graph) -> None:
+    print(f"Plan: {len(nodes)} node(s)")
+    for index, ready in enumerate(plan_waves(nodes, graph), start=1):
+        print(f"  wave {index}: {', '.join(ready)}")
+
+
+def resolve_files(
+    requested: list[Path], resolve_deps: bool = True
+) -> tuple[Nodes, Graph, list[str]]:
+    """Build the graph of *requested* files and return the ids pulled in as deps.
+
+    With *resolve_deps* the declared ``deps`` are located among sibling
+    ``.hurl`` files; otherwise every dependency must be in *requested*.
+    """
     missing = [str(path) for path in requested if not path.is_file()]
     if missing:
         raise GraphError(f"ERROR: .hurl file not found: {', '.join(missing)}")
     if not resolve_deps:
-        return build_graph(requested)
+        nodes, graph = build_graph(requested)
+        return nodes, graph, []
 
     templates = load_templates(_discover_siblings(requested))
     nodes, graph = link_templates(templates)
     roots = _requested_ids(templates, requested)
     nodes, graph = select_closure(nodes, graph, roots)
-    pulled = sorted(set(nodes) - roots)
-    if pulled:
-        print(f"Resolved dependencies: {', '.join(pulled)}")
-    return nodes, graph
+    return nodes, graph, sorted(set(nodes) - roots)
+
+
+def _resolve_nodes(
+    test_dir: Path, files: list[str] | None, resolve_deps: bool
+) -> tuple[Nodes, Graph, list[str]]:
+    if files is None:
+        nodes, graph = build_graph(sorted(test_dir.glob("*.hurl")))
+        return nodes, graph, []
+    return resolve_files([Path(f) for f in files], resolve_deps)
 
 
 def run_hurl_orchestrator(
@@ -710,6 +778,8 @@ def run_hurl_orchestrator(
     resolve_deps: bool = True,
     dry_run: bool = False,
     strict: bool = False,
+    json_plan: bool = False,
+    env_file: str | None = None,
 ) -> bool:
     """Discover, order, and execute ``.hurl`` files in dependency order.
 
@@ -718,7 +788,10 @@ def run_hurl_orchestrator(
     ``.hurl`` files and executed first; otherwise every dependency must be
     listed explicitly.  Any *extra_hurl_args* are forwarded verbatim to every
     hurl invocation, allowing flags like ``--verbose`` or ``--variable key=val``.
-    With *dry_run* the execution plan is printed and nothing is executed.
+    With *dry_run* the execution plan is printed and nothing is executed; with
+    *json_plan* as well, the plan (or the graph error) is printed as JSON.
+    Every hurl call receives *env_file*, or else ``.env`` from *test_dir*, as
+    ``--variables-file``.
     With *strict* a failure matching a node's ``known_failures`` still fails the
     run.  After execution a zip archive of all hurl reports is written to
     *report_zip* in the current working directory.
@@ -733,13 +806,36 @@ def run_hurl_orchestrator(
     test_dir = Path(test_dir_str)
     shared_vars: dict[str, dict[str, Any]] = {}
     extra = extra_hurl_args or []
-    global_args = get_global_args(test_dir)
+    variables_file = find_env_file(test_dir, env_file)
+    global_args = get_global_args(test_dir, env_file)
 
     try:
-        nodes, graph = _resolve_nodes(test_dir, files, resolve_deps)
+        if variables_file is not None and not variables_file.is_file():
+            raise GraphError(f"ERROR: env file not found: {variables_file}")
+        nodes, graph, pulled = _resolve_nodes(test_dir, files, resolve_deps)
     except GraphError as exc:
-        print(exc)
+        if dry_run and json_plan:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
+        else:
+            print(exc)
         return False
+
+    if dry_run and json_plan:
+        document = plan_document(nodes, graph, pulled, variables_file)
+        print(json.dumps(document, indent=2))
+        return True
+
+    if variables_file is not None:
+        print(f"Variables file: {variables_file}")
+    if files is not None and env_file is None:
+        for unused in unused_env_files(files, variables_file):
+            print(
+                f"NOTE: hurl-orchestra does not read {unused} when you give "
+                "files. It reads .env from the current directory. Add "
+                f"--env-file {unused} to read it."
+            )
+    if pulled:
+        print(f"Resolved dependencies: {', '.join(pulled)}")
 
     if dry_run:
         _print_plan(nodes, graph)
