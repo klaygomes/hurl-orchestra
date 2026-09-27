@@ -81,6 +81,7 @@ export default defineConfig({
       { text: 'AI agents', link: '/how-to/work-with-ai-agents' },
       { text: 'Reference', link: '/reference/' },
       { text: 'PyPI', link: 'https://pypi.org/project/hurl-orchestra/' },
+      { text: 'Blog', link: 'https://www.estacouveflor.com', target: '_self' },
     ],
     sidebar: { '/': guide },
     socialLinks: [{ icon: 'github', link: 'https://github.com/klaygomes/hurl-orchestra' }],
@@ -89,7 +90,7 @@ export default defineConfig({
       pattern: 'https://github.com/klaygomes/hurl-orchestra/edit/main/docs/:path',
     },
     footer: {
-      message: 'MIT licence. Made at Esta couve flor.',
+      message: 'MIT licence. Made at <a href="https://www.estacouveflor.com">Esta couve flor</a>.',
     },
   },
 });
