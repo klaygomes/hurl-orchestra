@@ -323,7 +323,7 @@ onBeforeUnmount(() => {
         <span class="score__key is-fail">fails</span>
         <span class="score__key is-known">known failure</span>
         <span class="score__key is-skipped">skipped</span>
-        <span class="score__hint">Select a note to change its outcome.</span>
+        <span class="score__hint">Click a box to change its result.</span>
       </figcaption>
     </div>
 

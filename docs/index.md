@@ -2,7 +2,7 @@
 layout: home
 markdownStyles: false
 title: hurl-orchestra
-titleTemplate: Run Hurl files as a dependency graph
+titleTemplate: Test your API from login to checkout
 ---
 
 <HomeHero />
@@ -16,9 +16,9 @@ titleTemplate: Run Hurl files as a dependency graph
 
 <p class="ho-movement__number">movement i</p>
 
-## Declare the order. Do not script it.
+## Say what each step needs. The order follows.
 
-Each file tells hurl-orchestra what it needs in `deps`. You do not write a shell script that calls Hurl in the correct sequence. You also do not copy a login request into each file.
+Each file lists the steps that must pass first in `deps`. hurl-orchestra finds the correct order. You do not write a script for it, and you do not copy the login request into each file.
 
 </div>
 <div class="ho-movement__code">
@@ -33,9 +33,9 @@ Each file tells hurl-orchestra what it needs in `deps`. You do not write a shell
 
 <p class="ho-movement__number">movement ii</p>
 
-## Captures go to the files that need them.
+## Share a value, like a login token, between steps.
 
-A file lists its captures in `outputs`. Each dependent file gets them with the node ID as a prefix, for example `auth_token`. Two files can capture a `token` without a collision.
+The login step saves the token from the response and lists it in `outputs`. Each later step reads it as `auth_token`: the name of the step, then the name of the value.
 
 </div>
 <div class="ho-movement__code">
@@ -50,9 +50,9 @@ A file lists its captures in `outputs`. Each dependent file gets them with the n
 
 <p class="ho-movement__number">movement iii</p>
 
-## Name the flaky failures that you know.
+## Mark the failures that you already know about.
 
-A shared test database can reach its connection limit. Declare that signature in `known_failures`. The run stays green, the report shows the failure, and the tolerance stops on its `until` date.
+Sometimes a test fails for a known reason, for example a busy shared database. Describe that failure in `known_failures`. The run still passes, the report still shows the failure, and the exception ends on its `until` date.
 
 </div>
 <div class="ho-movement__code">
@@ -67,9 +67,9 @@ A shared test database can reach its connection limit. Declare that signature in
 
 <p class="ho-movement__number">movement iv</p>
 
-## Wait when the server asks you to wait.
+## Try again when the server is busy.
 
-A `retry` policy runs the node again after an exponential backoff with jitter. It obeys `Retry-After`, and it retries only the failures that you list in `when`.
+A `retry` block runs the step again after a short wait, and each wait is longer than the last one. It obeys the `Retry-After` header of the server, and it retries only the failures that you list in `when`.
 
 </div>
 <div class="ho-movement__code">
@@ -84,9 +84,9 @@ A `retry` policy runs the node again after an exponential backoff with jitter. I
 
 <p class="ho-movement__number">movement v</p>
 
-## Let your agent write the next test.
+## Let your AI assistant write the next test.
 
-AI first means that each part is easy for a coding agent to read and to check. The files are plain text. The plan is JSON. Each result is a CTRF test with the assertion and the actual value. There is no model inside hurl-orchestra, and there is nothing to configure.
+AI first means that an AI assistant, such as Claude Code, can read and check each part. The tests are plain text. The plan and the results are JSON, and each failure shows the expected value and the actual value. There is no AI inside hurl-orchestra, and there is nothing to configure.
 
 [Work with AI agents →](/how-to/work-with-ai-agents)
 
@@ -116,9 +116,9 @@ hurl-orchestra --dry-run --json tests
 
 <section class="ho-coda">
 
-## Ready for CI, and for review
+## Results that you can share
 
-Each run writes a zip file with the Hurl JSON reports. Add `--report-ctrf` to show each request as a test in the GitHub job summary, where you and your agent read the same result.
+Each run saves a report of each request. On GitHub, each request shows as a test in the summary of the job, so your team and your AI assistant read the same result.
 
 <a class="hh__button hh__button--brand" href="/hurl-orchestra/how-to/report-in-github-actions">Report in GitHub Actions</a>
 

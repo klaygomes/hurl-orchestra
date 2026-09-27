@@ -136,22 +136,22 @@ onBeforeUnmount(() => {
     <div class="hh__copy">
       <p class="hh__eyebrow rise" style="--d: 0">AI first API automation testing, on <a href="https://hurl.dev">Hurl</a></p>
       <h1 class="hh__title">
-        <span class="rise-mask" style="--d: 1"><span>Your Hurl files,</span></span>
+        <span class="rise-mask" style="--d: 1"><span>Test your API</span></span>
         <span class="rise-mask" style="--d: 2">
-          <span>played <em class="hh__accent">in order.</em></span>
+          <span>from <em class="hh__accent">login to checkout.</em></span>
         </span>
         <svg class="hh__underline" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true">
           <path ref="underline" pathLength="1" d="M4 16 C 70 6, 140 22, 200 12 S 280 8, 296 14" />
         </svg>
       </h1>
       <p class="hh__lede rise" style="--d: 3">
-        Plain-text requests and three lines of YAML: a suite that you and your coding agent can write, check and
-        repair. hurl-orchestra builds the dependency graph, runs each wave in parallel and gives each capture to the
-        files that need it.
+        Write each step as a small text file: log in, add to cart, pay. hurl-orchestra runs the steps in the right
+        order, passes the login token to the steps that need it and shows you which step broke. Easy to read for you
+        and for your AI assistant.
       </p>
       <div class="hh__actions rise" style="--d: 4">
         <a class="hh__button hh__button--brand" :href="withBase('/guide/getting-started')">Get started</a>
-        <a class="hh__button" :href="withBase('/how-to/work-with-ai-agents')">Hand it to your agent</a>
+        <a class="hh__button" :href="withBase('/how-to/work-with-ai-agents')">Use it with your AI assistant</a>
       </div>
       <button type="button" class="hh__install rise" style="--d: 5" :aria-label="`Copy: ${install}`" @click="copy">
         <span class="hh__ps1" aria-hidden="true">$</span>

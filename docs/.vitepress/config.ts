@@ -52,7 +52,7 @@ const guide: DefaultTheme.SidebarItem[] = [
 
 const site = 'https://www.estacouveflor.com/hurl-orchestra';
 const description =
-  'AI first API automation testing: Hurl files that run as a dependency graph, written and repaired by you or your coding agent.';
+  'AI first API automation testing: write each step of an API test as a small text file, and run them in the right order.';
 
 export default defineConfig({
   title: 'hurl-orchestra',

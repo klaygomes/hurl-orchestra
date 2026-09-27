@@ -5,7 +5,7 @@
 # hurl-orchestra
 
 **AI first API automation testing.**<br>
-Your [Hurl](https://hurl.dev) files, played in order: a dependency graph that you and your coding agent can write, check and repair.
+Test your API from login to checkout. Write each step as a small text file, and hurl-orchestra runs the steps in the right order and shows you which step broke.
 
 [![PyPI](https://img.shields.io/pypi/v/hurl-orchestra?color=7e23b3)](https://pypi.org/project/hurl-orchestra/) [![CI](https://github.com/klaygomes/hurl-orchestra/actions/workflows/ci.yml/badge.svg)](https://github.com/klaygomes/hurl-orchestra/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-estacouveflor.com-c63f75)](https://www.estacouveflor.com/hurl-orchestra/) [![License: MIT](https://img.shields.io/badge/license-MIT-fad30b)](LICENSE)
 
@@ -20,7 +20,7 @@ Your [Hurl](https://hurl.dev) files, played in order: a dependency graph that yo
 
 </div>
 
-## Three lines of YAML, and the order takes care of itself
+## Say what each step needs, and the order follows
 
 ```hurl
 ---
@@ -37,11 +37,11 @@ pip install hurl-orchestra
 hurl-orchestra ./tests
 ```
 
-I built hurl-orchestra for the moment a Hurl suite outgrows one file. Each file says what it needs, and the tool works out the rest. It builds the graph, runs every independent file in parallel and hands each capture to the files that asked for it. A failure skips only its own branch, so one run shows every broken flow, not just the first one.
+I built hurl-orchestra for the moment a [Hurl](https://hurl.dev) test suite outgrows one file. Each file says which steps must pass first, and the tool works out the rest: it runs the steps in the right order, runs independent steps at the same time and passes values like a login token to the steps that need them. When one step fails, only the steps that depend on it stop, so one run shows every broken flow, not just the first one.
 
 ## Why teams pick it
 
-- **AI first.** Plain-text requests, a few frontmatter fields, a JSON plan (`--dry-run --json`) and CTRF results. A coding agent can write a test, check the graph and read the failure without a human in the loop. There is no model inside and nothing to configure. [Hand it to your agent →](https://www.estacouveflor.com/hurl-orchestra/how-to/work-with-ai-agents)
+- **AI first.** Plain-text requests, a few frontmatter fields, a JSON plan (`--dry-run --json`) and CTRF results. A coding agent can write a test, check the graph and read the failure without a human in the loop. There is no model inside and nothing to configure. [Use it with your AI assistant →](https://www.estacouveflor.com/hurl-orchestra/how-to/work-with-ai-agents)
 - **Declared, not scripted.** `deps` replace the shell script that calls Hurl in the right order.
 - **Captures that do not collide.** `auth` captures `token`, and its dependents get `auth_token`.
 - **Honest about flaky failures.** `known_failures` tolerates a failure you understand, with a reason and an expiry date, and the report still shows it.
