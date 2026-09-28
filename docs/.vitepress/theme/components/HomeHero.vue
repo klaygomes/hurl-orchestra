@@ -14,6 +14,7 @@ const source = ref('');
 const playing = ref(false);
 const copied = ref<'' | 'command' | 'prompt'>('');
 const calm = ref(false);
+const returning = ref(false);
 let frame = 0;
 let watcher = 0;
 
@@ -129,8 +130,9 @@ onMounted(() => {
     .connection;
   const frugal = Boolean(connection?.saveData) || /2g/.test(connection?.effectiveType ?? '');
   const apple = navigator.vendor === 'Apple Computer, Inc.';
-  const firstVisit = !readSeen();
+  const firstVisit = document.documentElement.classList.contains('ho-intro') && !readSeen();
   writeSeen();
+  returning.value = !firstVisit;
 
   if (!frugal) source.value = withBase(apple ? '/mascot/conductor.mp4' : '/mascot/conductor.webm');
   if (calm.value || frugal || !firstVisit) return giveCue();
@@ -141,6 +143,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  document.documentElement.classList.remove('ho-intro');
   cancelAnimationFrame(frame);
   cancelAnimationFrame(watcher);
 });
@@ -167,13 +170,6 @@ onBeforeUnmount(() => {
       </p>
       <div class="hh__actions rise" style="--d: 4">
         <a class="hh__button hh__button--brand" :href="withBase('/guide/getting-started')">Get started</a>
-        <a class="hh__button hh__button--ai" :href="withBase('/how-to/work-with-ai-agents')">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 2.5c.6 4.6 2.9 6.9 7.5 7.5-4.6.6-6.9 2.9-7.5 7.5-.6-4.6-2.9-6.9-7.5-7.5 4.6-.6 6.9-2.9 7.5-7.5Z" />
-            <path d="M19 15.5c.25 1.9 1.1 2.75 3 3-1.9.25-2.75 1.1-3 3-.25-1.9-1.1-2.75-3-3 1.9-.25 2.75-1.1 3-3Z" />
-          </svg>
-          Use it with your AI assistant
-        </a>
       </div>
       <div class="hh__install rise" style="--d: 5">
         <span class="hh__cmd"><span class="hh__ps1" aria-hidden="true">$</span> <code>{{ install }}</code></span>
@@ -213,6 +209,10 @@ onBeforeUnmount(() => {
         aria-label="Play the conductor animation again"
         @click="play"
       >
+        <span v-if="returning && source" class="hh__replay" aria-hidden="true">
+          <svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z" /></svg>
+          Play
+        </span>
         <img class="hh__still" :src="still" alt="A cauliflower in a bow tie holds a conductor baton" width="540" height="540" />
         <video
           v-if="source"
