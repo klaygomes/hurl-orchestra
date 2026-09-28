@@ -137,11 +137,12 @@
 .hh__button {
   display: inline-flex;
   align-items: center;
-  min-height: 46px;
+  gap: 8px;
+  min-height: var(--ecf-btn-height);
   padding: 0 22px;
-  border-radius: 999px;
-  font-family: var(--ecf-font-display);
-  font-weight: 600;
+  border-radius: var(--ecf-btn-radius);
+  font-family: var(--ecf-btn-font);
+  font-weight: var(--ecf-btn-weight);
   font-size: 16px;
   color: var(--vp-button-alt-text);
   background: var(--vp-button-alt-bg);
@@ -155,6 +156,25 @@
   transform: translateY(-2px);
   background: var(--vp-button-alt-hover-bg);
   color: var(--vp-button-alt-hover-text);
+}
+
+.hh__button:active,
+.hh__clipboard:active,
+.score__button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.hh__button:focus-visible,
+.hh__clipboard:focus-visible,
+.score__button:focus-visible {
+  outline: none;
+  box-shadow: var(--ecf-focus-ring);
+}
+
+.hh__button svg,
+.hh__clipboard svg,
+.score__button svg {
+  flex: none;
 }
 
 .hh__button--brand {
@@ -196,11 +216,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
-  padding: 0 11px;
-  border-radius: 9px;
+  min-height: var(--ecf-btn-height-sm);
+  padding: 0 14px;
+  border-radius: var(--ecf-btn-radius);
   background: var(--vp-c-brand-soft);
-  font-family: var(--ecf-font-label);
+  font-family: var(--ecf-btn-font);
+  font-weight: var(--ecf-btn-weight);
   font-size: 14px;
   color: var(--vp-c-brand-1);
   transition:
@@ -219,17 +240,6 @@
 
 .hh__clipboard:hover {
   transform: translateY(-1px);
-}
-
-.hh__clipboard:focus-visible {
-  outline: 2px solid var(--vp-c-brand-1);
-  outline-offset: 2px;
-}
-
-.hh__clipboard--ai {
-  color: var(--ecf-purple-900);
-  background: linear-gradient(110deg, var(--ecf-yellow), #ffe675 45%, #f7b6cf);
-  box-shadow: 0 6px 16px -8px rgba(198, 63, 117, 0.7);
 }
 
 .hh__clipboard--ai svg {
@@ -430,11 +440,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
+  min-height: var(--ecf-btn-height-sm);
   padding: 0 14px;
-  border-radius: 999px;
-  font-family: var(--ecf-font-display);
-  font-weight: 600;
+  border-radius: var(--ecf-btn-radius);
+  font-family: var(--ecf-btn-font);
+  font-weight: var(--ecf-btn-weight);
   font-size: 14px;
   color: var(--vp-button-brand-text);
   background: var(--vp-button-brand-bg);
@@ -1198,4 +1208,27 @@
 
 .score--vertical .score__bar {
   padding-left: 16px;
+}
+
+.hh__button--ai,
+.hh__clipboard--ai {
+  color: var(--ecf-ai-text);
+  background: var(--ecf-ai-bg);
+  box-shadow: var(--ecf-ai-shadow);
+}
+
+.hh__button--ai:hover,
+.hh__clipboard--ai:hover {
+  color: var(--ecf-ai-text);
+  background: var(--ecf-ai-bg-hover);
+}
+
+.hh__button--ai svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+.hh__button--ai:hover svg {
+  animation: hh-twinkle 700ms var(--ecf-ease-spring);
 }

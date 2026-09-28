@@ -333,3 +333,73 @@ kbd,
     font-size: 14px;
   }
 }
+
+:root {
+  --ecf-btn-radius: 999px;
+  --ecf-btn-height: 46px;
+  --ecf-btn-height-sm: 36px;
+  --ecf-btn-font: var(--ecf-font-display);
+  --ecf-btn-weight: 600;
+  --ecf-ai-bg: linear-gradient(110deg, var(--ecf-yellow), #ffe675 45%, #f7b6cf);
+  --ecf-ai-bg-hover: linear-gradient(110deg, #ffe04a, #ffe675 35%, #f59fc0);
+  --ecf-ai-text: var(--ecf-purple-900);
+  --ecf-ai-shadow: 0 8px 20px -10px rgba(198, 63, 117, 0.75);
+  --ecf-focus-ring: 0 0 0 2px var(--vp-c-bg), 0 0 0 4px var(--vp-c-brand-1);
+}
+
+.vp-doc [class*="language-"] > button.copy {
+  top: 10px;
+  right: 10px;
+  width: var(--ecf-btn-height-sm);
+  height: var(--ecf-btn-height-sm);
+  border: 0;
+  border-radius: var(--ecf-btn-radius);
+  background-color: var(--vp-c-brand-soft);
+  background-size: 17px;
+  transition:
+    opacity var(--ecf-duration-base) var(--ecf-ease-out),
+    transform var(--ecf-duration-fast) var(--ecf-ease-out),
+    background-color var(--ecf-duration-fast) var(--ecf-ease-out);
+}
+
+.vp-doc [class*="language-"] > button.copy:hover,
+.vp-doc [class*="language-"] > button.copy.copied {
+  border: 0;
+  background-color: var(--vp-c-brand-soft);
+  transform: translateY(-1px);
+}
+
+.vp-doc [class*="language-"] > button.copy:active {
+  transform: scale(0.97);
+}
+
+.vp-doc [class*="language-"] > button.copy:focus-visible {
+  outline: none;
+  box-shadow: var(--ecf-focus-ring);
+}
+
+.vp-doc [class*="language-"] > button.copy.copied,
+.vp-doc [class*="language-"] > button.copy:hover.copied {
+  border-radius: var(--ecf-btn-radius);
+}
+
+.vp-doc [class*="language-"] > button.copy.copied::before,
+.vp-doc [class*="language-"] > button.copy:hover.copied::before {
+  top: 0;
+  transform: translateX(calc(-100% - 6px));
+  height: var(--ecf-btn-height-sm);
+  border: 0;
+  border-radius: var(--ecf-btn-radius);
+  padding: 0 14px;
+  font-family: var(--ecf-btn-font);
+  font-weight: var(--ecf-btn-weight);
+  font-size: 13px;
+  color: var(--vp-c-brand-1);
+  background-color: var(--vp-c-brand-soft);
+}
+
+.dark {
+  --ecf-ai-bg: linear-gradient(110deg, #f7b6cf, #e7b8ff 55%, #c084fc);
+  --ecf-ai-bg-hover: linear-gradient(110deg, #f9c6da, #eec9ff 55%, #cf9dfd);
+  --ecf-ai-shadow: 0 8px 22px -10px rgba(192, 132, 252, 0.8);
+}
