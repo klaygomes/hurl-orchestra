@@ -150,10 +150,12 @@ const edges = computed(() =>
   ),
 );
 
-const edgeState = (source: string) => {
+const pulling: Status[] = ['running', 'pass', 'fail', 'known'];
+
+const linkState = (source: string, target: string) => {
   const status = statuses[source];
-  if (status === 'pass') return 'carried';
   if (status === 'fail' || status === 'known' || status === 'skipped' || status === 'skipped-known') return 'cut';
+  if (status === 'pass' && pulling.includes(statuses[target])) return 'carried';
   return 'idle';
 };
 
@@ -353,7 +355,7 @@ onBeforeUnmount(() => {
             :d="edge.d"
             pathLength="1"
             class="score__edge"
-            :class="[`is-${edgeState(edge.source)}`, { 'is-tie': edge.tie }]"
+            :class="[`is-${linkState(edge.source, edge.target)}`, { 'is-tie': edge.tie }]"
           />
         </g>
 
@@ -377,7 +379,7 @@ onBeforeUnmount(() => {
           <text v-if="node.needs.length" class="score__needs" :x="-node.w / 2 + 30" y="35">
             <tspan class="score__needs-lead">also needs </tspan>
             <template v-for="(dep, i) in node.needs" :key="dep">
-              <tspan :class="`is-${edgeState(dep)}`">{{ dep }}</tspan>
+              <tspan :class="`is-${linkState(dep, node.id)}`">{{ dep }}</tspan>
               <tspan v-if="i < node.needs.length - 1" class="score__needs-lead">, </tspan>
             </template>
           </text>
