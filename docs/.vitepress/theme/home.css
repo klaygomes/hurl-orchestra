@@ -1,3 +1,7 @@
+.VPHome {
+  overflow-x: clip;
+}
+
 .hh {
   --px: 0;
   --py: 0;
@@ -1120,14 +1124,78 @@
     max-width: 100%;
   }
 
-  .hh__install code {
-    flex: 1 1 100%;
+  .hh__install {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    padding: 12px;
+  }
+
+  .hh__install .hh__cmd {
+    display: block;
+    grid-column: 1 / -1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    padding: 2px 4px 4px;
+  }
+
+  .hh__clipboard {
+    justify-content: center;
+    min-height: 38px;
+  }
+
+  .hh__actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .hh__button {
+    justify-content: center;
   }
 
   .ho-coda {
     padding: 28px 20px;
   }
+}
+
+.hh__cmd {
+  display: contents;
+}
+
+.score--vertical .score__log {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+}
+
+.score--vertical .score__line {
+  white-space: pre;
+  overflow-wrap: normal;
+  width: max-content;
+  min-width: 100%;
+}
+
+.score--vertical .score__legend {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 8px 20px;
+}
+
+.score--vertical .score__hint {
+  grid-column: 1 / -1;
+}
+
+.score__title,
+.score__button {
+  white-space: nowrap;
+}
+
+.score--vertical .score__count {
+  display: none;
+}
+
+.score--vertical .score__bar {
+  padding-left: 16px;
 }
