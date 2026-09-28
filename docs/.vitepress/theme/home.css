@@ -1232,3 +1232,50 @@
 .hh__button--ai:hover svg {
   animation: hh-twinkle 700ms var(--ecf-ease-spring);
 }
+
+.score__gutter-title {
+  font-family: var(--ecf-font-label);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  fill: var(--vp-c-text-3);
+}
+
+.score__wave--gutter {
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  letter-spacing: 0;
+  transition: fill var(--ecf-duration-base) var(--ecf-ease-out);
+}
+
+.score__wave--gutter.is-active {
+  fill: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.score--vertical .score__edge {
+  stroke-width: 2;
+}
+
+.score__needs {
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  fill: var(--vp-c-text-2);
+  pointer-events: none;
+}
+
+.score__needs-lead {
+  fill: var(--vp-c-text-3);
+}
+
+.score__needs .is-carried {
+  fill: var(--ecf-ok);
+}
+
+.score__needs .is-cut {
+  fill: var(--ecf-magenta);
+  text-decoration: line-through;
+}
+
+.dark .score__needs .is-cut {
+  fill: #f07aa6;
+}

@@ -31,19 +31,47 @@ const inView = ref(false);
 let run = 0;
 let observer: IntersectionObserver | undefined;
 let resize: ResizeObserver | undefined;
+let measureFrame = 0;
 
 const command = computed(() => `hurl-orchestra ./${props.dir}`);
 const changed = computed(() => Object.values(outcomes).some((o) => o !== 'pass'));
 
+const pillWidth = (id: string) => id.length * 8.4 + 40;
+
+const TREE = { top: 44, indent: 30, gutter: 40, pill: 34, needs: 22, gap: 18, needsX: 30, needsChar: 6.6 };
+
+const parentOf = (node: (typeof nodes)[number]) =>
+  node.deps.find((dep) => nodes.find((n) => n.id === dep)?.wave === node.wave - 1);
+
+const needsOf = (node: (typeof nodes)[number]) => node.deps.filter((dep) => dep !== parentOf(node));
+
+const tree = computed(() => {
+  const order: string[] = [];
+  const visit = (id: string) => {
+    order.push(id);
+    for (const child of nodes.filter((n) => parentOf(n) === id)) visit(child.id);
+  };
+  for (const root of nodes.filter((n) => !parentOf(n))) visit(root.id);
+  const rows: Record<string, { left: number; y: number }> = {};
+  let cursor = TREE.top;
+  for (const id of order) {
+    const node = nodes.find((n) => n.id === id)!;
+    rows[id] = { left: TREE.gutter + (node.wave - 1) * TREE.indent, y: cursor + TREE.pill / 2 };
+    cursor += TREE.pill + (needsOf(node).length ? TREE.needs : 0) + TREE.gap;
+  }
+  const needsWidth = (n: (typeof nodes)[number]) =>
+    needsOf(n).length ? TREE.needsX + `also needs ${needsOf(n).join(', ')}`.length * TREE.needsChar : 0;
+  const width = Math.max(...nodes.map((n) => rows[n.id].left + Math.max(pillWidth(n.id), needsWidth(n)))) + 16;
+  return { rows, width: Math.max(width, 300), height: cursor + 4 };
+});
+
 const geometry = computed(() => {
   if (vertical.value) {
-    const rowH = 150;
-    const top = 56;
     return {
-      width: 360,
-      height: top + rowH * measures.length + 16,
-      node: (wave: number, slot: number) => ({ x: 40 + slot * 196, y: top + (wave - 0.5) * rowH }),
-      measure: (wave: number) => ({ x: 0, y: top + (wave - 1) * rowH, w: 360, h: rowH }),
+      width: tree.value.width,
+      height: tree.value.height,
+      node: () => ({ x: 0, y: 0 }),
+      measure: () => ({ x: 0, y: 0, w: 0, h: 0 }),
     };
   }
   const width = Math.round(Math.min(960, Math.max(680, sheetWidth.value - 16)));
@@ -59,24 +87,19 @@ const geometry = computed(() => {
   };
 });
 
-const pillWidth = (id: string) => id.length * 8.4 + 40;
-
 const placed = computed(() =>
   nodes.map((node) => {
+    const w = pillWidth(node.id);
+    if (vertical.value) {
+      const row = tree.value.rows[node.id];
+      return { ...node, x: row.left + w / 2, y: row.y, w, needs: needsOf(node) };
+    }
     const at = geometry.value.node(node.wave, node.slot);
-    return { ...node, ...at, w: pillWidth(node.id) };
+    return { ...node, ...at, w, needs: [] as string[] };
   }),
 );
 
 const byId = computed(() => Object.fromEntries(placed.value.map((n) => [n.id, n])));
-
-const lanes = computed(() => {
-  const ties = placed.value
-    .flatMap((target) => target.deps.map((dep) => ({ dep, target: target.id, span: target.wave - byId.value[dep].wave })))
-    .filter((tie) => tie.span > 1)
-    .sort((a, b) => a.span - b.span);
-  return Object.fromEntries(ties.map((tie, index) => [`${tie.dep}->${tie.target}`, index]));
-});
 
 function rail(points: [number, number][], radius = 12): string {
   let d = `M${points[0][0]} ${points[0][1]}`;
@@ -99,28 +122,18 @@ function rail(points: [number, number][], radius = 12): string {
 
 const edges = computed(() =>
   placed.value.flatMap((target) =>
-    target.deps.map((dep) => {
+    target.deps.flatMap((dep) => {
       const source = byId.value[dep];
       const span = target.wave - source.wave;
       let d: string;
       if (vertical.value) {
-        const y1 = source.y + 17;
-        const y2 = target.y - 17;
-        if (span === 1) {
-          const my = (y1 + y2) / 2;
-          d = `M${source.x} ${y1} C${source.x} ${my}, ${target.x} ${my}, ${target.x} ${y2}`;
-        } else {
-          const lane = 300 + 18 * lanes.value[`${dep}->${target.id}`];
-          const exitX = source.x + source.w / 2 - 14;
-          const gapY = source.y + 17 + 22 + 8 * lanes.value[`${dep}->${target.id}`];
-          d = rail([
-            [exitX, source.y + 17],
-            [exitX, gapY],
-            [lane, gapY],
-            [lane, target.y],
-            [target.x + target.w / 2, target.y],
-          ]);
-        }
+        if (dep !== parentOf(target)) return [];
+        const dotX = source.x - source.w / 2 + 17;
+        d = rail([
+          [dotX, source.y + 5],
+          [dotX, target.y],
+          [target.x - target.w / 2, target.y],
+        ]);
       } else {
         const x1 = source.x + source.w / 2;
         const x2 = target.x - target.w / 2;
@@ -132,7 +145,7 @@ const edges = computed(() =>
           d = `M${source.x + 10} ${source.y - 17} C${source.x + 60} ${arc}, ${target.x - 60} ${arc}, ${target.x - 10} ${target.y - 17}`;
         }
       }
-      return { id: `${dep}->${target.id}`, source: dep, target: target.id, d, tie: span > 1 };
+      return [{ id: `${dep}->${target.id}`, source: dep, target: target.id, d, tie: span > 1 }];
     }),
   ),
 );
@@ -233,8 +246,11 @@ onMounted(() => {
   reduced.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (!root.value) return;
   resize = new ResizeObserver(() => {
-    vertical.value = (root.value?.clientWidth ?? 960) < 640;
-    sheetWidth.value = sheet.value?.clientWidth ?? 960;
+    cancelAnimationFrame(measureFrame);
+    measureFrame = requestAnimationFrame(() => {
+      vertical.value = (root.value?.clientWidth ?? 960) < 640;
+      sheetWidth.value = sheet.value?.clientWidth ?? 960;
+    });
   });
   resize.observe(root.value);
   if (sheet.value) resize.observe(sheet.value);
@@ -253,6 +269,7 @@ onBeforeUnmount(() => {
   run++;
   observer?.disconnect();
   resize?.disconnect();
+  cancelAnimationFrame(measureFrame);
 });
 </script>
 
@@ -277,9 +294,24 @@ onBeforeUnmount(() => {
         class="score__svg"
         :viewBox="`0 0 ${geometry.width} ${geometry.height}`"
         role="group"
-        aria-label="The dependency graph of the example suite, one wave for each measure"
+        :aria-label="vertical ? 'The dependency tree of the example suite, one indent level for each wave' : 'The dependency graph of the example suite, one wave for each measure'"
       >
-        <g class="score__measures">
+        <g v-if="vertical" class="score__gutter" aria-hidden="true">
+          <text class="score__gutter-title" x="22" y="20" text-anchor="middle">wave</text>
+          <text
+            v-for="node in placed"
+            :key="`w-${node.id}`"
+            class="score__wave score__wave--gutter"
+            :class="{ 'is-active': activeWave === node.wave }"
+            x="22"
+            :y="node.y + 5"
+            text-anchor="middle"
+          >
+            {{ node.wave }}
+          </text>
+        </g>
+
+        <g v-else class="score__measures">
           <g v-for="wave in measures" :key="wave" :class="{ 'is-active': activeWave === wave }">
             <rect
               class="score__measure"
@@ -291,9 +323,9 @@ onBeforeUnmount(() => {
             />
             <text
               class="score__wave"
-              :x="geometry.measure(wave).x + (vertical ? 14 : geometry.measure(wave).w / 2)"
-              :y="geometry.measure(wave).y + (vertical ? 22 : geometry.measure(wave).h - 10)"
-              :text-anchor="vertical ? 'start' : 'middle'"
+              :x="geometry.measure(wave).x + geometry.measure(wave).w / 2"
+              :y="geometry.measure(wave).y + geometry.measure(wave).h - 10"
+              text-anchor="middle"
             >
               wave {{ wave }}
             </text>
@@ -342,6 +374,13 @@ onBeforeUnmount(() => {
           <rect class="score__pill" :x="-node.w / 2" y="-17" :width="node.w" height="34" rx="17" />
           <circle class="score__dot" :cx="-node.w / 2 + 17" cy="0" r="5" />
           <text class="score__label" :x="-node.w / 2 + 29" y="5">{{ node.id }}</text>
+          <text v-if="node.needs.length" class="score__needs" :x="-node.w / 2 + 30" y="35">
+            <tspan class="score__needs-lead">also needs </tspan>
+            <template v-for="(dep, i) in node.needs" :key="dep">
+              <tspan :class="`is-${edgeState(dep)}`">{{ dep }}</tspan>
+              <tspan v-if="i < node.needs.length - 1" class="score__needs-lead">, </tspan>
+            </template>
+          </text>
           <circle
             v-if="(outcomes[node.id] ?? 'pass') !== 'pass'"
             class="score__flag"
