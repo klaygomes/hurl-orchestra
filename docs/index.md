@@ -14,7 +14,7 @@ titleTemplate: Test your API from login to checkout
 <section class="ho-movement">
 <div class="ho-movement__copy">
 
-<p class="ho-movement__number">movement i</p>
+<p class="ho-movement__number">wave 1</p>
 
 ## Say what each step needs. The order follows.
 
@@ -31,7 +31,7 @@ Each file lists the steps that must pass first in `deps`. hurl-orchestra finds t
 <section class="ho-movement">
 <div class="ho-movement__copy">
 
-<p class="ho-movement__number">movement ii</p>
+<p class="ho-movement__number">wave 2</p>
 
 ## Share a value, like a login token, between steps.
 
@@ -48,7 +48,7 @@ The login step saves the token from the response and lists it in `outputs`. Each
 <section class="ho-movement">
 <div class="ho-movement__copy">
 
-<p class="ho-movement__number">movement iii</p>
+<p class="ho-movement__number">wave 3</p>
 
 ## Mark the failures that you already know about.
 
@@ -65,7 +65,7 @@ Sometimes a test fails for a known reason, for example a busy shared database. D
 <section class="ho-movement">
 <div class="ho-movement__copy">
 
-<p class="ho-movement__number">movement iv</p>
+<p class="ho-movement__number">wave 4</p>
 
 ## Try again when the server is busy.
 
@@ -82,7 +82,7 @@ A `retry` block runs the step again after a short wait, and each wait is longer 
 <section class="ho-movement">
 <div class="ho-movement__copy">
 
-<p class="ho-movement__number">movement v</p>
+<p class="ho-movement__number">wave 5</p>
 
 ## Let your AI assistant write the next test.
 

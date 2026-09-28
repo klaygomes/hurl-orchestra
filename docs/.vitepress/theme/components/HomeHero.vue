@@ -170,8 +170,7 @@ onBeforeUnmount(() => {
         <a class="hh__button" :href="withBase('/how-to/work-with-ai-agents')">Use it with your AI assistant</a>
       </div>
       <div class="hh__install rise" style="--d: 5">
-        <span class="hh__ps1" aria-hidden="true">$</span>
-        <code>{{ install }}</code>
+        <span class="hh__cmd"><span class="hh__ps1" aria-hidden="true">$</span> <code>{{ install }}</code></span>
         <button type="button" class="hh__clipboard" :aria-label="`Copy the command: ${install}`" @click="copy('command')">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <rect x="8" y="8" width="12" height="12" rx="2.5" />

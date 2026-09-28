@@ -326,3 +326,10 @@ kbd,
   font-variant-ligatures: none;
   font-feature-settings: "calt" 0, "liga" 0;
 }
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .VPNavBar .VPNavBarMenu .VPNavBarMenuLink {
+    padding: 0 6px;
+    font-size: 14px;
+  }
+}

@@ -42,7 +42,7 @@ const geometry = computed(() => {
     return {
       width: 360,
       height: top + rowH * measures.length + 16,
-      node: (wave: number, slot: number) => ({ x: 36 + slot * 288, y: top + (wave - 0.5) * rowH }),
+      node: (wave: number, slot: number) => ({ x: 40 + slot * 196, y: top + (wave - 0.5) * rowH }),
       measure: (wave: number) => ({ x: 0, y: top + (wave - 1) * rowH, w: 360, h: rowH }),
     };
   }
@@ -70,6 +70,33 @@ const placed = computed(() =>
 
 const byId = computed(() => Object.fromEntries(placed.value.map((n) => [n.id, n])));
 
+const lanes = computed(() => {
+  const ties = placed.value
+    .flatMap((target) => target.deps.map((dep) => ({ dep, target: target.id, span: target.wave - byId.value[dep].wave })))
+    .filter((tie) => tie.span > 1)
+    .sort((a, b) => a.span - b.span);
+  return Object.fromEntries(ties.map((tie, index) => [`${tie.dep}->${tie.target}`, index]));
+});
+
+function rail(points: [number, number][], radius = 12): string {
+  let d = `M${points[0][0]} ${points[0][1]}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1];
+    const [x, y] = points[i];
+    const [nx, ny] = points[i + 1];
+    const inLen = Math.hypot(x - px, y - py);
+    const outLen = Math.hypot(nx - x, ny - y);
+    const r = Math.min(radius, inLen / 2, outLen / 2);
+    const ax = x - ((x - px) / inLen) * r;
+    const ay = y - ((y - py) / inLen) * r;
+    const bx = x + ((nx - x) / outLen) * r;
+    const by = y + ((ny - y) / outLen) * r;
+    d += ` L${ax} ${ay} Q${x} ${y} ${bx} ${by}`;
+  }
+  const [lx, ly] = points[points.length - 1];
+  return `${d} L${lx} ${ly}`;
+}
+
 const edges = computed(() =>
   placed.value.flatMap((target) =>
     target.deps.map((dep) => {
@@ -83,8 +110,16 @@ const edges = computed(() =>
           const my = (y1 + y2) / 2;
           d = `M${source.x} ${y1} C${source.x} ${my}, ${target.x} ${my}, ${target.x} ${y2}`;
         } else {
-          const cx = Math.max(source.x + source.w / 2, target.x + target.w / 2) + 26 * span;
-          d = `M${source.x + source.w / 2 - 12} ${source.y + 10} C${cx} ${source.y + 30}, ${cx} ${target.y - 30}, ${target.x + target.w / 2 - 12} ${target.y - 10}`;
+          const lane = 300 + 18 * lanes.value[`${dep}->${target.id}`];
+          const exitX = source.x + source.w / 2 - 14;
+          const gapY = source.y + 17 + 22 + 8 * lanes.value[`${dep}->${target.id}`];
+          d = rail([
+            [exitX, source.y + 17],
+            [exitX, gapY],
+            [lane, gapY],
+            [lane, target.y],
+            [target.x + target.w / 2, target.y],
+          ]);
         }
       } else {
         const x1 = source.x + source.w / 2;
@@ -233,7 +268,7 @@ onBeforeUnmount(() => {
           </button>
           <button type="button" class="score__button" :disabled="playing" @click="play">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" /></svg>
-            {{ played ? 'Play again' : 'Play' }}
+            {{ played ? (vertical ? 'Replay' : 'Play again') : 'Play' }}
           </button>
         </div>
       </header>
@@ -323,7 +358,7 @@ onBeforeUnmount(() => {
         <span class="score__key is-fail">fails</span>
         <span class="score__key is-known">known failure</span>
         <span class="score__key is-skipped">skipped</span>
-        <span class="score__hint">Click a box to change its result.</span>
+        <span class="score__hint">Tap or click a box to change its result.</span>
       </figcaption>
     </div>
 
