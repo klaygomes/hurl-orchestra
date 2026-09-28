@@ -61,6 +61,11 @@ export default defineConfig({
   lang: 'en-US',
   head: [
     ['meta', { name: 'theme-color', content: '#480f7b' }],
+    [
+      'script',
+      {},
+      "try{if(!localStorage.getItem('hurl-orchestra-intro-seen'))document.documentElement.classList.add('ho-intro')}catch(e){document.documentElement.classList.add('ho-intro')}",
+    ],
     ['link', { rel: 'icon', type: 'image/png', href: '/hurl-orchestra/favicon.png' }],
     ['meta', { property: 'og:image', content: 'https://www.estacouveflor.com/hurl-orchestra/og.jpg' }],
   ],
