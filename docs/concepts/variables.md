@@ -29,7 +29,11 @@ Missing expected outputs: token; reported outputs: none
 
 ## How the values go to Hurl
 
-hurl-orchestra writes the values to a private variables file for each call. Then it gives the file to Hurl with `--variables-file`. Thus a token does not show in the process list.
+hurl-orchestra writes the values to a private secrets file for each call. Then it gives the file to Hurl with `--secrets-file`. Thus a token does not show in the process list. Hurl replaces the token with `***` in its standard error and in `report.json`.
+
+The response body files in `report.zip` can contain the same token. Do not publish a report from a suite with real credentials.
+
+To give the values to Hurl as variables, add `--inject-as-variables`. Hurl then writes the values in its reports. Do not use this option with real credentials.
 
 ## Global variables
 
@@ -55,6 +59,16 @@ NOTE: hurl-orchestra does not read tests/.env when you give files. It reads .env
 ```
 
 If the file of `--env-file` does not exist, the run stops before it calls Hurl.
+
+## Global secrets
+
+A secrets file gives a password or an API key to all nodes. hurl-orchestra gives the file to each Hurl call with `--secrets-file`. Hurl redacts each value:
+
+```bash
+hurl-orchestra ./tests --secrets-file ci-secrets.env
+```
+
+The file uses the same `name=value` format as `.env`. A captured value with the same name replaces the value in the file.
 
 ## Variables from the command line
 

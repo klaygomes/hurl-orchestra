@@ -8,6 +8,7 @@ const guide: DefaultTheme.SidebarItem[] = [
     text: 'Get started',
     items: [
       { text: 'Install and run', link: '/guide/getting-started' },
+      { text: 'Upgrade hurl-orchestra', link: '/guide/upgrading' },
       { text: 'Work with AI agents', link: '/how-to/work-with-ai-agents' },
     ],
   },
@@ -42,6 +43,7 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: 'Frontmatter', link: '/reference/frontmatter' },
       { text: 'Console output', link: '/reference/console-output' },
       { text: 'CTRF report', link: '/reference/ctrf' },
+      { text: 'Hurl compatibility', link: '/reference/hurl-compatibility' },
     ],
   },
   {

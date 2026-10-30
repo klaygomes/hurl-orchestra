@@ -77,6 +77,62 @@ Solution:
 
 1. Examine the path. A relative path starts at the current directory.
 
+## `ERROR: secrets file not found`
+
+The file of `--secrets-file` does not exist.
+
+Solution:
+
+1. Examine the path. A relative path starts at the current directory.
+
+## `ERROR: hurl 7.0.0 is too old`
+
+The `hurl` command on the `PATH` is older than 7.1.0.
+
+Solution:
+
+1. Install Hurl 7.1.0 or a later version. hurl-orchestra runs its tests with 8.1.0.
+2. Run `hurl --version` in the same shell.
+
+## `WARNING: cannot read the hurl version`
+
+hurl-orchestra found the `hurl` command, but the output of `hurl --version` is not in the usual format.
+
+Solution:
+
+1. Run `hurl --version` and examine the output.
+2. Install the official Hurl binary from the [Hurl website](https://hurl.dev/docs/installation.html).
+
+## `ERROR: --test is managed by hurl-orchestra`
+
+A Hurl option that the tool owns is in the flags or in the `args` frontmatter. The same error shows for `--report-json` and `--secrets-file`.
+
+Solution:
+
+1. Remove the option from the command or from `args`.
+2. For a report, use `--report-zip` or `--report-ctrf`.
+3. For a secrets file, use the hurl-orchestra `--secrets-file` option.
+
+## `Hurl could not parse the file (exit code 2)`
+
+Hurl rejected the syntax of the file. hurl-orchestra does not retry this failure, because a retry cannot repair the file.
+
+Solution:
+
+1. Read the Hurl error below the message. It shows the line and the token.
+2. Correct the file.
+3. Run `hurl-orchestra --dry-run` to check the frontmatter, then run the suite again.
+
+## `Hurl rejected the command line (exit code 1)`
+
+Hurl rejected an option. hurl-orchestra does not retry this failure.
+
+Solution:
+
+1. Compare each Hurl option with the [Hurl manual](https://hurl.dev/docs/manual.html).
+2. Remove the reserved options that [Hurl compatibility](/reference/hurl-compatibility) lists.
+3. Run `hurl --version` and make sure that the version is 8.1.0 or later for the new options.
+
 ## Hurl cannot find a variable
 
 Hurl shows an error for a variable without a value, for example `base_url`.
@@ -106,13 +162,23 @@ Solution:
 
 ## `FAILED: foo, Hurl timed out after 300 seconds`
 
-One Hurl call took more than 5 minutes.
+One Hurl call reached the limit. hurl-orchestra gives the value of `--timeout` to Hurl as `--max-time`. Thus Hurl writes a report before the process stops.
 
 Solution:
 
-1. Run the file with Hurl alone to find the slow request.
+1. Read the report of the node. It shows the request that reached the limit.
 2. Add a timeout to the request, for example with `args` and `max-time`.
 3. If the whole suite needs more time, run with `--timeout SECONDS`.
+
+## A `Hurl config:` line shows an option that you did not set
+
+Hurl 8.1 reads a config file at `$XDG_CONFIG_HOME/hurl/config` or `~/.config/hurl/config`. The file supplies default options to each call.
+
+Solution:
+
+1. Read the file at the path in the line.
+2. Remove the option that you do not want.
+3. Or set the option on the hurl-orchestra command line. A command line option wins over the config file.
 
 ## `FAILED: foo, known failure 'name' expired on date`
 

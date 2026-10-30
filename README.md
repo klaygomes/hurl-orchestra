@@ -47,18 +47,19 @@ I built hurl-orchestra for the moment a [Hurl](https://hurl.dev) test suite outg
 - **Honest about flaky failures.** `known_failures` tolerates a failure you understand, with a reason and an expiry date, and the report still shows it.
 - **Polite under load.** A `retry` policy backs off exponentially, with jitter, and honours `Retry-After`.
 - **Ready for CI.** A zip of every Hurl report on every run, and a CTRF file for the GitHub job summary.
+- **Current with Hurl.** Built for Hurl 7.1+ and tested against 8.1: secrets, timeouts and exit codes follow the recent Hurl behavior.
 
 ## Under the hood
 
 - **Small.** Python 3.11+, one dependency (`python-frontmatter`), and the standard library's `graphlib` and thread pool for the waves.
-- **Safe with secrets.** Captured values reach Hurl through a private variables file per call, never the process list.
-- **Fails early.** The whole graph is validated before the first request: unknown deps, cycles, wrong types, malformed tolerances and bad regexes.
-- **Tested.** 250+ tests, with ruff and fully typed mypy checks in CI.
+- **Safe with secrets.** Captured values reach Hurl as secrets through a private file per call, never the process list, and Hurl redacts them from its logs and reports.
+- **Fails early.** The whole graph is validated before the first request: unknown deps, cycles, wrong types, malformed tolerances and bad regexes. A Hurl option that hurl-orchestra owns stops the run with a clear message.
+- **Tested.** 290+ tests, with ruff and fully typed mypy checks in CI, and integration runs against Hurl 7.1.0 and 8.1.0.
 - **Docs written for people and agents.** Short procedures in Simplified Technical English, checked by Vale, and published as [`llms-full.txt`](https://www.estacouveflor.com/hurl-orchestra/llms-full.txt) too.
 
 ## Read the docs
 
-[Get started](https://www.estacouveflor.com/hurl-orchestra/guide/getting-started) · [Concepts](https://www.estacouveflor.com/hurl-orchestra/concepts/graph) · [How-to](https://www.estacouveflor.com/hurl-orchestra/how-to/run-specific-files) · [Reference](https://www.estacouveflor.com/hurl-orchestra/reference/) · [Troubleshooting](https://www.estacouveflor.com/hurl-orchestra/troubleshooting)
+[Get started](https://www.estacouveflor.com/hurl-orchestra/guide/getting-started) · [Upgrade](https://www.estacouveflor.com/hurl-orchestra/guide/upgrading) · [Hurl compatibility](https://www.estacouveflor.com/hurl-orchestra/reference/hurl-compatibility) · [Concepts](https://www.estacouveflor.com/hurl-orchestra/concepts/graph) · [How-to](https://www.estacouveflor.com/hurl-orchestra/how-to/run-specific-files) · [Reference](https://www.estacouveflor.com/hurl-orchestra/reference/) · [Troubleshooting](https://www.estacouveflor.com/hurl-orchestra/troubleshooting)
 
 ## Say hi
 

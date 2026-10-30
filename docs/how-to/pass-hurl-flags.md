@@ -32,3 +32,23 @@ A flag without a value can also go before `--`, for example `--verbose`. A flag 
 ## Result
 
 hurl-orchestra adds the `args` of the node after the flags from the command line. If the two places set the same flag, Hurl uses the last value. Thus the value of the node wins.
+
+## Options that hurl-orchestra owns
+
+Do not give these options to Hurl:
+
+| Option | Use this instead |
+|---|---|
+| `--test` | Nothing. hurl-orchestra uses test mode. |
+| `--report-json` | `--report-zip` or `--report-ctrf` |
+| `--secrets-file` | The hurl-orchestra `--secrets-file` option |
+
+Hurl rejects a repeated option. hurl-orchestra stops with a clear error before the first request.
+
+A `--max-time` or `-m` in the flags replaces the value from `--timeout`. hurl-orchestra gives the other options to Hurl with no change.
+
+## Hurl config file
+
+Hurl 8.1 reads a config file at `$XDG_CONFIG_HOME/hurl/config` or `~/.config/hurl/config`. The file supplies default options to each call. A command line option wins. hurl-orchestra shows the path on the first lines of the run.
+
+Read [Hurl compatibility](/reference/hurl-compatibility) for the full list.

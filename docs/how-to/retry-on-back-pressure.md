@@ -24,6 +24,8 @@ With `jitter: full`, the wait is a random value from 0 to that limit. Thus nodes
 
 If the response has a `Retry-After` header, hurl-orchestra uses it. It accepts seconds and HTTP dates. `max_backoff_ms` still limits the value.
 
+hurl-orchestra never retries a Hurl command line error (exit code 1) or a parse error (exit code 2). Remove those failures from the file or from the `args` list.
+
 The console shows each attempt, and the result line shows the number of attempts:
 
 ```text

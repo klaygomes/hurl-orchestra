@@ -26,6 +26,12 @@ hurl-orchestra writes the zip file after each run, also when a node fails. Thus 
 
 A relative path goes into the directory that you gave. An absolute path stays the same.
 
+## Secrets in the report
+
+hurl-orchestra gives each captured value to Hurl as a secret. Hurl replaces the value with `***` in `report.json`. Thus a token in a request header does not show in the report.
+
+Hurl redacts request headers and log lines only. The response body files in `store/` can contain a credential that the API returned. Do not publish a report from a suite with real credentials.
+
 ## The CTRF report
 
 [CTRF](https://ctrf.io) is a JSON format for test results. Add `--report-ctrf` to write it:
@@ -35,6 +41,8 @@ hurl-orchestra ./tests --report-ctrf results.json
 ```
 
 Each Hurl entry becomes one test. Skipped nodes and known failures also show in the report. For the full rules, read the [CTRF reference](/reference/ctrf).
+
+A node that Hurl cannot parse does not become a retry. Read [Hurl compatibility](/reference/hurl-compatibility) for the exit codes.
 
 ## The execution plan as JSON
 

@@ -14,6 +14,7 @@ Hurl
 hurl-orchestra
 (?i)jitter
 JSON
+JUnit
 (?i)jsonpath
 Markdown
 Mermaid

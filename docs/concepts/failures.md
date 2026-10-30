@@ -31,6 +31,8 @@ A `retry` policy runs a failed node again before hurl-orchestra decides the resu
 
 hurl-orchestra applies the retries first. Then it compares the last failure with `known_failures`.
 
+hurl-orchestra never retries a Hurl command line error (exit code 1) or a parse error (exit code 2). A retry cannot repair a bad option or a syntax error. Read [Hurl compatibility](/reference/hurl-compatibility) for the exit codes.
+
 ## Time limit
 
-Each Hurl call has a limit of 300 seconds by default. After the limit, hurl-orchestra stops the call, and the node fails with `Hurl timed out after 300 seconds`. Use `--timeout SECONDS` to change the limit.
+Each Hurl call has a limit of 300 seconds by default. hurl-orchestra gives the limit to Hurl as `--max-time`. After the limit, Hurl writes a report and the node fails with `Hurl timed out after 300 seconds`. Use `--timeout SECONDS` to change the limit. A `max-time` in the `args` frontmatter replaces the value.

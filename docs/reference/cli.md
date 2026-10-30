@@ -22,7 +22,7 @@ A script makes this table from the parser of the command. Thus the table and `hu
 
 Put Hurl options after `--`. hurl-orchestra gives them to each Hurl call. For more information, read [Give flags to Hurl](/how-to/pass-hurl-flags).
 
-hurl-orchestra always gives these options to Hurl: `--test`, `--report-json` and, if a variables file applies, `--variables-file`.
+hurl-orchestra always gives these options to Hurl: `--test`, `--report-json` and `--max-time`. It gives `--variables-file` when a variables file applies and `--secrets-file` when a secrets file or a captured value applies. Do not give `--test`, `--report-json` or `--secrets-file` to Hurl. hurl-orchestra stops with an error when you do. Read [Hurl compatibility](/reference/hurl-compatibility) for the full list.
 
 ## JSON plan
 
@@ -32,6 +32,8 @@ hurl-orchestra always gives these options to Hurl: `--test`, `--report-json` and
 {
   "ok": true,
   "env_file": "/home/you/project/tests/.env",
+  "secrets_file": null,
+  "hurl_config": "/home/you/.config/hurl/config",
   "resolved": ["add_item", "auth", "create_cart"],
   "waves": [["auth"], ["create_cart"], ["add_item"], ["checkout"]],
   "nodes": [
@@ -54,6 +56,8 @@ hurl-orchestra always gives these options to Hurl: `--test`, `--report-json` and
 | `ok` | `true` if the graph is valid. |
 | `error` | The error message. It shows only when `ok` is `false`. |
 | `env_file` | The absolute path of the variables file, or `null`. |
+| `secrets_file` | The absolute path of the secrets file, or `null`. |
+| `hurl_config` | The path of the Hurl config file, or `null`. |
 | `resolved` | The nodes that file mode added as dependencies. |
 | `waves` | The node IDs of each wave, in the sequence of execution. |
 | `nodes[].file` | The file of the node. For an alias, it is the file of the template. |

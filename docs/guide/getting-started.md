@@ -7,7 +7,7 @@ This tutorial makes a suite of two Hurl files. The first file sends a login requ
 You need:
 
 - Python 3.11 or a later version.
-- [Hurl](https://hurl.dev/docs/installation.html) on your `PATH`.
+- [Hurl](https://hurl.dev/docs/installation.html) 7.1.0 or a later version on your `PATH`.
 
 ## 1. Install hurl-orchestra
 
@@ -16,7 +16,7 @@ pip install hurl-orchestra
 hurl --version
 ```
 
-The second command must show the Hurl version. If it shows an error, install Hurl first.
+The second command must show the Hurl version. The version must be 7.1.0 or later. hurl-orchestra runs its tests with 8.1.0. If the command shows an error or an old version, install Hurl first.
 
 ## 2. Write the first file
 

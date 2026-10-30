@@ -23,6 +23,8 @@ The frontmatter is a YAML block between two `---` lines at the start of a `.hurl
 | `connect-timeout: 30` | `--connect-timeout 30` |
 | `--insecure` | `--insecure`, with no change |
 
+Do not put `test`, `report-json` or `secrets-file` in `args`. hurl-orchestra owns these options and stops with an error. A `max-time` in `args` replaces the value from `--timeout`.
+
 ## `known_failures` {#known-failures}
 
 Each entry needs `name`, `reason` and one or more signature fields. All signature fields that you set must match.
