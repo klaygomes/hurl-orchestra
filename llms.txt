@@ -1,0 +1,27 @@
+# hurl-orchestra
+
+> AI first API automation testing: write each step of an API test as a small text file, and run the steps in the right order.
+
+This file points AI agents and other tools to the documentation of hurl-orchestra.
+
+## Published documentation
+
+- [Short index](https://www.estacouveflor.com/hurl-orchestra/llms.txt): Each page with a summary.
+- [Full documentation](https://www.estacouveflor.com/hurl-orchestra/llms-full.txt): All pages in one file.
+- [Upgrade guide](https://www.estacouveflor.com/hurl-orchestra/guide/upgrading): Move a suite to 0.13.0 and Hurl 8.1.
+- [Hurl compatibility](https://www.estacouveflor.com/hurl-orchestra/reference/hurl-compatibility): Supported versions, reserved options and exit codes.
+- [Work with AI agents](https://www.estacouveflor.com/hurl-orchestra/how-to/work-with-ai-agents): Rules for a coding agent.
+
+## Repository documentation
+
+- [README.md](README.md): What the tool does and how to install it.
+- [CONTRIBUTING.md](CONTRIBUTING.md): How to send a change and how to write the documentation.
+- [docs/](docs): The source of the documentation.
+
+## Quick rules
+
+- One scenario in each `.hurl` file.
+- Declare each dependency in `deps` and each shared value in `outputs`.
+- Use `--dry-run --json` to check the graph before a run.
+- Use `--report-ctrf` for CI results.
+- Hurl 7.1.0 or later is required. The tests run with 8.1.0.
