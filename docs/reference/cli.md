@@ -31,7 +31,7 @@ hurl-orchestra always gives these options to Hurl: `--test`, `--report-json` and
 ```json
 {
   "ok": true,
-  "env_file": "tests/.env",
+  "env_file": "/home/you/project/tests/.env",
   "resolved": ["add_item", "auth", "create_cart"],
   "waves": [["auth"], ["create_cart"], ["add_item"], ["checkout"]],
   "nodes": [
@@ -53,7 +53,7 @@ hurl-orchestra always gives these options to Hurl: `--test`, `--report-json` and
 |---|---|
 | `ok` | `true` if the graph is valid. |
 | `error` | The error message. It shows only when `ok` is `false`. |
-| `env_file` | The variables file of the run, or `null`. |
+| `env_file` | The absolute path of the variables file, or `null`. |
 | `resolved` | The nodes that file mode added as dependencies. |
 | `waves` | The node IDs of each wave, in the sequence of execution. |
 | `nodes[].file` | The file of the node. For an alias, it is the file of the template. |

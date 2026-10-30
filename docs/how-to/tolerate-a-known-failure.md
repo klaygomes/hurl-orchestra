@@ -20,7 +20,7 @@ Use this procedure when a node fails for a cause that you know and cannot correc
 When the node fails and each signature field that you set matches, the console shows:
 
 ```text
-KNOWN FAILURE: create_order [db_pool_exhausted] The shared test database is at its connection limit
+KNOWN FAILURE: create_order [db_pool_exhausted] The shared test database is at its connection limit (https://example.com/runbooks/test-db-pool)
 ```
 
 The run stays green. The nodes that need `create_order` get no outputs, so hurl-orchestra skips them. The run ends with a summary:

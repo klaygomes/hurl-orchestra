@@ -33,4 +33,4 @@ hurl-orchestra applies the retries first. Then it compares the last failure with
 
 ## Time limit
 
-Each Hurl call has a limit of 300 seconds. After the limit, hurl-orchestra stops the call, and the node fails with `Hurl timed out after 300 seconds`.
+Each Hurl call has a limit of 300 seconds by default. After the limit, hurl-orchestra stops the call, and the node fails with `Hurl timed out after 300 seconds`. Use `--timeout SECONDS` to change the limit.

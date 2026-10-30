@@ -8,6 +8,8 @@
 | `--dry-run` | - | Show the execution plan. Do not run hurl. |
 | `--json` | - | With --dry-run, write the plan as JSON for scripts and AI agents. |
 | `--strict` | - | Make a failure that matches known_failures fail the run. |
+| `--timeout` `SECONDS` | `300` | Limit each Hurl process to this many seconds. The default is 300. |
+| `--jobs` `N` | - | Run at most N Hurl processes at the same time. |
 | `--diagram` | - | Write a Mermaid diagram of the graph. Do not run the tests. |
 | `--diagram-output` `FILE` | `diagram.md` | Write the diagram to this file. Use '-' for stdout. |
 | `--diagram-overwrite` | - | Replace the diagram file if it exists. |

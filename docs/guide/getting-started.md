@@ -68,7 +68,7 @@ hurl-orchestra ./tests
 ```
 
 ```text
-Variables file: tests/.env
+Variables file: /home/you/project/tests/.env
 SUCCESS: auth [captured: token]
 SUCCESS: profile [injected: auth_token]
 Report saved to tests/report.zip

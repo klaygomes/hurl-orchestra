@@ -1,12 +1,12 @@
 # Frontmatter
 
-The frontmatter is a YAML block between two `---` lines at the start of a `.hurl` file. All fields are optional.
+The frontmatter is a YAML block between two `---` lines at the start of a `.hurl` file. All fields are optional. An unknown field stops the run, so a typo cannot silently remove a dependency.
 
 ## Fields
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `id` | string | The file name without `.hurl` | The ID of the node. It must not contain spaces. |
+| `id` | string | The file name without `.hurl` | The ID of the node. It can contain letters, digits, `.`, `_` and `-`, and it cannot be `.` or `..`. |
 | `deps` | list | `[]` | The IDs of the nodes that must pass first. An item `template: alias` makes an [alias](/concepts/aliases). |
 | `outputs` | list of strings | `[]` | The captures that the node gives to its dependents. |
 | `priority` | integer | `0` | The sequence in a wave. A higher value runs first. |
@@ -52,4 +52,4 @@ The last response is the last call that Hurl recorded for the node. With the Hur
 | `respect_retry_after` | boolean | `true` | Use the `Retry-After` header of the response. |
 | `when` | map or list | Each failure | The signatures that start a retry. Each item takes `status`, `header`, `body` and `stderr`. |
 
-hurl-orchestra validates all fields before the run. An unknown key in `retry` stops the run.
+hurl-orchestra validates all fields before the run. An unknown key in the frontmatter, `known_failures` or `retry` stops the run.

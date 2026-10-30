@@ -6,7 +6,7 @@ hurl-orchestra reads the frontmatter of each `.hurl` file. It then makes a direc
 
 ## Nodes
 
-The ID of a node is the `id` field. If a file has no `id`, the ID is the file name without `.hurl`. An ID must not contain spaces, because hurl-orchestra uses it in variable names.
+The ID of a node is the `id` field. If a file has no `id`, the ID is the file name without `.hurl`. An ID can contain letters, digits, `.`, `_` and `-`, and it cannot be `.` or `..`. hurl-orchestra also uses the ID in variable names and report directory names.
 
 A file without frontmatter is also a node. It has no dependencies and no outputs.
 
@@ -21,13 +21,17 @@ A wave is a set of nodes that have all of their dependencies done. hurl-orchestr
 | 3 | `add_item` | It needs `auth` and `create_cart`. |
 | 4 | `checkout` | It needs `add_item`. |
 
-The maximum number of parallel Hurl processes is the number of CPUs plus 4, with a limit of 32.
+By default, the maximum number of parallel Hurl processes is the number of CPUs plus 4, with a limit of 32. Use `--jobs N` to set a lower or higher limit.
 
 ## Priority in a wave
 
 The `priority` field sorts the nodes in a wave. hurl-orchestra runs each priority group in sequence, from the highest value to the lowest value. The nodes in one group run in parallel. For a procedure, read [Order the nodes in a wave](/how-to/order-a-wave).
 
 Priority never overrides `deps`. A node with a high priority still waits for its dependencies.
+
+## Time limit
+
+Each Hurl process has a limit of 300 seconds. Use `--timeout SECONDS` to change it.
 
 ## Validation
 

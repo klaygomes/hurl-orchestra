@@ -42,10 +42,10 @@ A variables file gives values to all nodes, for example `base_url`. hurl-orchest
 | `hurl-orchestra tests/profile.hurl` | `.env` in the current directory |
 | `hurl-orchestra --env-file ci.env ./tests` | `ci.env` |
 
-The run shows the file that it uses on the first line:
+The run shows the absolute path of the file that it uses on the first line:
 
 ```text
-Variables file: tests/.env
+Variables file: /home/you/project/tests/.env
 ```
 
 When you give files, hurl-orchestra does not read a `.env` file next to the files. The run tells you, and it shows the fix:

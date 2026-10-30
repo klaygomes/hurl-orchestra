@@ -8,7 +8,7 @@ Each node writes one result line when it is complete. A failure also writes the 
 |---|---|
 | `SUCCESS: <id> [injected: … \| captured: … \| N attempts]` | The node passed. The brackets show the variables that it got and gave. |
 | `FAILED: <id>` | The node failed. The error output of Hurl follows. |
-| `KNOWN FAILURE: <id> [<name>] <reason>` | The failure matched a `known_failures` entry. The run stays green. |
+| `KNOWN FAILURE: <id> [<name>] <reason> (<link>)` | The failure matched a `known_failures` entry. The run stays green. The link shows when the entry has one. |
 | `SKIPPED: <id> (failed dependency: <ids>)` | A dependency failed. The node did not run. |
 | `SKIPPED: <id> (known failure upstream: <ids>)` | A dependency was a known failure. The node did not run. |
 | `RETRY: <id> attempt N/M failed (<status>), waiting <ms>ms` | A retry policy runs the node again. |

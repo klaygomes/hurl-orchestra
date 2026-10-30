@@ -13,6 +13,24 @@ Solution:
 
 A dry run does not need Hurl.
 
+## `ERROR: no .hurl files found in <path>`
+
+The given directory has no `.hurl` files. This is an error, not an empty pass, so CI cannot go green with no tests.
+
+Solution:
+
+1. Examine the path. It must contain the `.hurl` files.
+2. Use `--dry-run` to check the directory before the run.
+
+## `ERROR: <file> has unknown frontmatter keys: <keys>`
+
+The frontmatter has a field that hurl-orchestra does not know. A common cause is a typo such as `dep` for `deps` or `output` for `outputs`.
+
+Solution:
+
+1. Compare the field with the [frontmatter reference](/reference/frontmatter).
+2. Correct the name. Run `--dry-run` to validate the file.
+
 ## `ERROR: deps for 'foo' must be a list`
 
 The frontmatter of the file has an incorrect type. Similar errors are for `id`, `outputs`, `priority` and `args`.
@@ -94,6 +112,7 @@ Solution:
 
 1. Run the file with Hurl alone to find the slow request.
 2. Add a timeout to the request, for example with `args` and `max-time`.
+3. If the whole suite needs more time, run with `--timeout SECONDS`.
 
 ## `FAILED: foo, known failure 'name' expired on date`
 
