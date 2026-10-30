@@ -492,3 +492,64 @@ def test_cli_report_ctrf_with_files_mode() -> None:
     ):
         main()
     assert mock.call_args.kwargs["report_ctrf"] == "r.json"
+
+
+def test_corrupt_report_produces_a_failed_placeholder(tmp_path: Path) -> None:
+    node_dir = tmp_path / "ping"
+    node_dir.mkdir()
+    (node_dir / "report.json").write_text("{not json")
+
+    report = build_ctrf(["ping"], tmp_path, START_MS, STOP_MS)
+
+    test = report["results"]["tests"][0]
+    assert test["status"] == "failed"
+    assert "could not read or parse report.json" in test["message"]
+
+
+def test_condense_empty_message_returns_empty_string() -> None:
+    assert _condense(" \n\t\n") == ""
+
+
+def test_condense_keeps_the_source_without_details() -> None:
+    message = "Assert failure\n 3 | GET https://example.invalid"
+    assert _condense(message) == "Assert failure: GET https://example.invalid"
+
+
+def test_condense_keeps_details_without_a_source() -> None:
+    message = "Assert failure\n   | actual: <200>"
+    assert _condense(message) == "Assert failure: actual: <200>"
+
+
+def test_tolerated_unexplained_file_failure_is_marked_other(tmp_path: Path) -> None:
+    from hurl_orchestra.known_failures import KnownFailure, KnownFailureMatch
+
+    node_dir = tmp_path / "ping"
+    node_dir.mkdir()
+    entry = {
+        "index": 1,
+        "line": 1,
+        "calls": [],
+        "captures": [],
+        "asserts": [],
+        "time": 10,
+    }
+    (node_dir / "report.json").write_text(
+        json.dumps(_make_report([entry], success=False))
+    )
+    known = KnownFailureMatch(
+        KnownFailure(name="pool", reason="shared db"), ("status 500",)
+    )
+
+    report = build_ctrf(
+        ["ping"], tmp_path, START_MS, STOP_MS, tolerated={"ping": known}
+    )
+
+    tolerated = [
+        test for test in report["results"]["tests"] if test["status"] == "other"
+    ]
+    assert len(tolerated) == 1
+    assert tolerated[0]["flaky"] is True
+
+
+def test_condense_keeps_only_the_headline_when_nothing_else_matches() -> None:
+    assert _condense("Assert failure\nsome context") == "Assert failure"

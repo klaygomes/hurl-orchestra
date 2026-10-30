@@ -20,3 +20,13 @@ def no_report_zip() -> pytest.FixtureRequest:
     """Suppress zip creation for all tests that don't test it."""
     with patch("shutil.make_archive"):
         yield
+
+
+@pytest.fixture(autouse=True)
+def known_hurl_version() -> pytest.FixtureRequest:
+    """Keep the Hurl version check deterministic and off the subprocess mock."""
+    with patch(
+        "hurl_orchestra.orchestrator.detect_hurl_version",
+        return_value=(8, 1, 0),
+    ):
+        yield

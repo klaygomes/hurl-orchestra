@@ -10,13 +10,20 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import zipfile
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from shutil import make_archive as real_make_archive
+from unittest.mock import patch
 
 import pytest
 
-from hurl_orchestra.orchestrator import run_hurl_orchestrator
+from hurl_orchestra.orchestrator import (
+    MIN_HURL_VERSION,
+    _read_hurl_version,
+    run_hurl_orchestrator,
+)
 
 pytestmark = pytest.mark.skipif(
     shutil.which("hurl") is None,
@@ -98,11 +105,13 @@ def test_real_hurl_with_relative_directory_and_env(
 ) -> None:
     suite = _write_suite(tmp_path, api_server)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
-    result = run_hurl_orchestrator(
-        "suite",
-        report_ctrf="results.json",
-    )
+    with patch("shutil.make_archive", side_effect=real_make_archive):
+        result = run_hurl_orchestrator(
+            "suite",
+            report_ctrf="results.json",
+        )
 
     out = capsys.readouterr().out
     assert result is True, out
@@ -114,3 +123,14 @@ def test_real_hurl_with_relative_directory_and_env(
     report = json.loads((suite / "results.json").read_text())
     statuses = [test["status"] for test in report["results"]["tests"]]
     assert statuses == ["passed", "passed"]
+
+    with zipfile.ZipFile(suite / "report.zip") as archive:
+        profile_report = archive.read("profile/report.json").decode()
+    assert "abc123" not in profile_report
+    assert "***" in profile_report
+
+
+def test_installed_hurl_meets_the_minimum_version() -> None:
+    version = _read_hurl_version()
+    assert version is not None, "hurl --version did not show a version"
+    assert version >= MIN_HURL_VERSION

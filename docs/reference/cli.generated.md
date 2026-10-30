@@ -4,6 +4,8 @@
 | `--report-zip` `FILE` | `report.zip` | Write the hurl reports of all nodes to this zip file. |
 | `--report-ctrf` `FILE` | - | Also write a CTRF JSON report to this file. |
 | `--env-file` `FILE` | - | Give this variables file to each hurl call. The default is .env in the given directory, or in the current directory for files. |
+| `--secrets-file` `FILE` | - | Give this file of secrets to each hurl call with --secrets-file. Hurl redacts the values from its logs and reports. |
+| `--inject-as-variables` | - | Give captured values to hurl as variables, not secrets. Hurl then writes them in its reports. Do not use it with real credentials. |
 | `--no-deps` | - | Run only the listed .hurl files. Do not add their declared deps from the same directory. |
 | `--dry-run` | - | Show the execution plan. Do not run hurl. |
 | `--json` | - | With --dry-run, write the plan as JSON for scripts and AI agents. |

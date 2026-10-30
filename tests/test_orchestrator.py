@@ -57,7 +57,7 @@ def ok(stderr: str = "") -> CompletedProcess[str]:
 
 
 def fail(stderr: str = "assertion failed") -> CompletedProcess[str]:
-    return CompletedProcess([], 1, "", stderr)
+    return CompletedProcess([], 4, "", stderr)
 
 
 def writing_report(data: dict) -> object:
@@ -73,11 +73,11 @@ def writing_report(data: dict) -> object:
 
 
 def injected_variables(cmd: list[str]) -> str:
-    """Return the concatenated content of every --variables-file passed in *cmd*."""
+    """Return the content of every injected properties file in *cmd*."""
     return "".join(
         Path(cmd[i + 1]).read_text()
         for i, part in enumerate(cmd)
-        if part == "--variables-file"
+        if part in ("--variables-file", "--secrets-file")
     )
 
 
@@ -516,7 +516,7 @@ def test_timeout_during_execution_is_reported(
 
     out = capsys.readouterr().out
     assert result is False
-    assert seen_timeouts == [12]
+    assert seen_timeouts == [17]
     assert "Hurl timed out after 12 seconds" in out
 
 
@@ -615,6 +615,7 @@ def test_capture_not_declared_in_outputs_is_not_forwarded(tmp_path: Path) -> Non
         run_hurl_orchestrator(str(tmp_path))
 
     assert "--variables-file" not in cmds[1]
+    assert "--secrets-file" not in cmds[1]
     assert "secret" not in variables[1]
 
 
@@ -908,6 +909,8 @@ def test_cli_defaults_to_current_directory() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -929,6 +932,8 @@ def test_cli_passes_custom_directory_argument() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -950,6 +955,8 @@ def test_cli_passes_specific_hurl_files() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -971,6 +978,8 @@ def test_cli_forwards_extra_hurl_args_with_directory() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -992,6 +1001,8 @@ def test_cli_forwards_extra_hurl_args_with_files() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -1158,6 +1169,8 @@ def test_cli_double_dash_splits_hurl_args() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -1191,6 +1204,8 @@ def test_cli_mixed_known_flags_and_double_dash() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -1213,6 +1228,8 @@ def test_cli_boolean_passthrough_without_double_dash() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -1235,6 +1252,8 @@ def test_cli_order_independent_known_flags() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        secrets_file=None,
+        inject_as_variables=False,
         timeout_seconds=300,
         jobs=None,
     )
@@ -1481,7 +1500,7 @@ def test_injected_variables_file_is_removed_after_step(tmp_path: Path) -> None:
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
         for i, part in enumerate(cmd):
-            if part == "--variables-file":
+            if part == "--secrets-file":
                 variables_files.append(Path(cmd[i + 1]))
             if part == "--report-json":
                 (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
@@ -1895,3 +1914,509 @@ def test_invalid_timeout_and_jobs_are_rejected(
 
     assert run_hurl_orchestrator(str(tmp_path), jobs=0) is False
     assert "jobs must be at least 1" in capsys.readouterr().out
+
+
+def test_hurl_older_than_the_minimum_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with (
+        patch(
+            "hurl_orchestra.orchestrator.detect_hurl_version",
+            return_value=(7, 0, 0),
+        ),
+        patch("subprocess.run") as mock,
+    ):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "hurl 7.0.0 is too old" in out
+    assert "7.1.0" in out
+    mock.assert_not_called()
+
+
+def test_unreadable_hurl_version_warns_and_runs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with (
+        patch("hurl_orchestra.orchestrator.detect_hurl_version", return_value=None),
+        patch("subprocess.run", return_value=ok()),
+    ):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "cannot read the hurl version" in out
+
+
+def test_captured_output_is_injected_as_a_secret(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    report = [{"entries": [{"captures": [{"name": "token", "value": "abc123"}]}]}]
+    cmds: list[list[str]] = []
+    secrets: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        if "--secrets-file" in cmd:
+            secrets.append(Path(cmd[cmd.index("--secrets-file") + 1]).read_text())
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert "--secrets-file" in cmds[1]
+    assert "--variables-file" not in cmds[1]
+    assert secrets[-1] == "auth_token=abc123\n"
+    assert "abc123" not in " ".join(cmds[1])
+
+
+def test_inject_as_variables_keeps_the_old_transport(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    report = [{"entries": [{"captures": [{"name": "token", "value": "abc"}]}]}]
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), inject_as_variables=True)
+
+    assert "--variables-file" in cmds[1]
+    assert "--secrets-file" not in cmds[1]
+
+
+def test_global_secrets_file_is_passed_to_every_call(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    secrets = tmp_path / "secrets.env"
+    secrets.write_text("api_key=abc\n")
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator(str(tmp_path), secrets_file=str(secrets))
+
+    assert result is True
+    assert "--secrets-file" in cmds[0]
+    assert str(secrets) in cmds[0]
+
+
+def test_missing_global_secrets_file_stops_the_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    with patch("subprocess.run") as mock:
+        result = run_hurl_orchestrator(
+            str(tmp_path), secrets_file=str(tmp_path / "missing.env")
+        )
+
+    assert result is False
+    assert "secrets file not found" in capsys.readouterr().out
+    mock.assert_not_called()
+
+
+def test_global_and_injected_secrets_are_merged(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    secrets = tmp_path / "secrets.env"
+    secrets.write_text("other=keep\nauth_token=old\n")
+    report = [{"entries": [{"captures": [{"name": "token", "value": "new"}]}]}]
+    merged: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        if "--secrets-file" in cmd:
+            merged.append(Path(cmd[cmd.index("--secrets-file") + 1]).read_text())
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), secrets_file=str(secrets))
+
+    content = merged[-1]
+    assert content.count("auth_token=") == 1
+    assert "auth_token=new\n" in content
+    assert "other=keep\n" in content
+
+
+def test_reserved_hurl_flag_in_extra_args_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with patch("subprocess.run") as mock:
+        result = run_hurl_orchestrator(str(tmp_path), extra_hurl_args=["--test"])
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "--test is managed by hurl-orchestra" in out
+    mock.assert_not_called()
+
+
+def test_reserved_hurl_flag_in_node_args_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping", args=["report-json", "/tmp/out"])
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "--report-json is managed by hurl-orchestra" in out
+
+
+def test_user_max_time_replaces_the_injected_one(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(
+            str(tmp_path),
+            extra_hurl_args=["--max-time", "5"],
+            timeout_seconds=30,
+        )
+
+    cmd = cmds[0]
+    assert cmd.count("--max-time") == 1
+    assert cmd[cmd.index("--max-time") + 1] == "5"
+
+
+def test_node_max_time_replaces_the_injected_one(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping", args=[{"max-time": 4}])
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), timeout_seconds=30)
+
+    cmd = cmds[0]
+    assert cmd.count("--max-time") == 1
+    assert cmd[cmd.index("--max-time") + 1] == "4"
+
+
+def test_timeout_is_sent_to_hurl_with_a_process_grace(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    seen: list[dict[str, object]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        seen.append({"cmd": cmd, "timeout": kw.get("timeout")})
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), timeout_seconds=9)
+
+    cmd = seen[0]["cmd"]
+    assert isinstance(cmd, list)
+    assert cmd[cmd.index("--max-time") + 1] == "9"
+    assert seen[0]["timeout"] == 14
+
+
+def test_parse_error_is_not_retried(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "broken.hurl").write_text(
+        "---\nid: broken\nretry:\n  attempts: 3\n---\nGET\n"
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        calls.append(list(cmd))
+        return CompletedProcess(cmd, 2, "", "error: unexpected token")
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert len(calls) == 1
+    assert "could not parse the file" in out
+    assert "unexpected token" in out
+
+
+def test_dry_run_json_names_the_secrets_file_and_hurl_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    secrets = tmp_path / "secrets.env"
+    secrets.write_text("api_key=abc\n")
+    config_home = tmp_path / "xdg"
+    (config_home / "hurl").mkdir(parents=True)
+    (config_home / "hurl" / "config").write_text("--verbose\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+
+    run_hurl_orchestrator(
+        str(tmp_path),
+        secrets_file=str(secrets),
+        dry_run=True,
+        json_plan=True,
+    )
+
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["secrets_file"] == str(secrets)
+    assert plan["hurl_config"] == str(config_home / "hurl" / "config")
+
+
+def test_hurl_config_is_printed_on_a_real_run(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    config_home = tmp_path / "xdg"
+    (config_home / "hurl").mkdir(parents=True)
+    config = config_home / "hurl" / "config"
+    config.write_text("--verbose\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert f"Hurl config: {config}" in out
+
+
+def test_cli_passes_secrets_file_and_injection_mode(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch(
+            "sys.argv",
+            [
+                "hurl-orchestra",
+                "--secrets-file",
+                "s.env",
+                "--inject-as-variables",
+                str(tmp_path),
+            ],
+        ),
+    ):
+        main()
+
+    assert mock.call_args.kwargs["secrets_file"] == "s.env"
+    assert mock.call_args.kwargs["inject_as_variables"] is True
+
+
+def test_short_max_time_flag_skips_injection(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), extra_hurl_args=["-m5"])
+
+    assert "-m5" in cmds[0]
+    assert "--max-time" not in cmds[0]
+
+
+def test_hurl_config_is_ignored_before_hurl_8_1(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    config_home = tmp_path / "xdg"
+    (config_home / "hurl").mkdir(parents=True)
+    (config_home / "hurl" / "config").write_text("--verbose\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+
+    with (
+        patch(
+            "hurl_orchestra.orchestrator.detect_hurl_version",
+            return_value=(7, 1, 0),
+        ),
+        patch("subprocess.run", return_value=ok()),
+    ):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "Hurl config:" not in out
+
+
+def test_read_hurl_version_returns_none_when_the_binary_fails() -> None:
+    from hurl_orchestra.orchestrator import _read_hurl_version
+
+    with patch("subprocess.run", side_effect=OSError("boom")):
+        assert _read_hurl_version() is None
+
+
+def test_read_hurl_version_returns_none_for_unknown_output() -> None:
+    from hurl_orchestra.orchestrator import _read_hurl_version
+
+    result = CompletedProcess([], 0, "hurl unknown", "")
+    with patch("subprocess.run", return_value=result):
+        assert _read_hurl_version() is None
+
+
+def test_read_hurl_version_parses_the_output() -> None:
+    from hurl_orchestra.orchestrator import _read_hurl_version
+
+    result = CompletedProcess([], 0, "hurl 8.1.0 (x86_64)", "")
+    with patch("subprocess.run", return_value=result):
+        assert _read_hurl_version() == (8, 1, 0)
+
+
+def test_empty_variable_part_is_rejected() -> None:
+    from hurl_orchestra.orchestrator import _hurl_variable_name
+
+    with pytest.raises(ValueError, match="non-empty"):
+        _hurl_variable_name("", "x")
+
+
+def test_node_args_with_a_leading_dash_are_kept(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping", args=["--insecure"])
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        cmds.append(list(cmd))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path))
+
+    assert cmds[0].count("--insecure") == 1
+
+
+def test_multi_key_args_mapping_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\nargs:\n  - insecure: true\n    verbose: true\n---\n"
+    )
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    assert result is False
+    assert "single-key dicts" in capsys.readouterr().out
+
+
+def test_invalid_retry_frontmatter_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\nretry:\n  attempts: 0\n---\nGET https://example.com\n"
+    )
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    assert result is False
+    assert "retry.attempts" in capsys.readouterr().out
+
+
+def test_secrets_file_keeps_comments_and_blank_lines(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    secrets = tmp_path / "secrets.env"
+    secrets.write_text("# global secrets\n\nother=keep\n")
+    report = [{"entries": [{"captures": [{"name": "token", "value": "new"}]}]}]
+    merged: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        if "--secrets-file" in cmd:
+            merged.append(Path(cmd[cmd.index("--secrets-file") + 1]).read_text())
+        for i, part in enumerate(cmd):
+            if part == "--report-json":
+                (Path(cmd[i + 1]) / "report.json").write_text(json.dumps(report))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        run_hurl_orchestrator(str(tmp_path), secrets_file=str(secrets))
+
+    assert "# global secrets" in merged[-1]
+    assert "other=keep\n" in merged[-1]
+
+
+def test_no_deps_with_existing_files_runs_them(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with patch("subprocess.run", return_value=ok()):
+        result = run_hurl_orchestrator(
+            files=[str(tmp_path / "ping.hurl")], resolve_deps=False
+        )
+
+    assert result is True
+    assert "SUCCESS: ping" in capsys.readouterr().out
+
+
+def test_absolute_report_zip_path_is_used(tmp_path: Path) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    absolute = tmp_path / "reports" / "ci.zip"
+
+    with (
+        patch("subprocess.run", return_value=ok()),
+        patch("shutil.make_archive", return_value=str(absolute)) as archive,
+    ):
+        result = run_hurl_orchestrator(str(tmp_path), report_zip=str(absolute))
+
+    assert result is True
+    assert archive.call_args.args[0] == str(absolute.with_suffix(""))
+
+
+def test_ctrf_write_error_is_a_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with (
+        patch("subprocess.run", return_value=ok()),
+        patch(
+            "hurl_orchestra.orchestrator.write_ctrf",
+            side_effect=OSError("disk full"),
+        ),
+    ):
+        result = run_hurl_orchestrator(
+            str(tmp_path), report_ctrf=str(tmp_path / "results.json")
+        )
+
+    out = capsys.readouterr().out
+    assert result is True
+    assert "Failed to write CTRF report" in out
+
+
+def test_graph_error_during_execution_is_reported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hurl_orchestra.orchestrator import GraphError
+
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    with patch(
+        "hurl_orchestra.orchestrator._execute",
+        side_effect=GraphError("ERROR: late graph problem"),
+    ):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "late graph problem" in out
+
+
+@pytest.mark.parametrize("value", ["nope", "0"])
+def test_cli_rejects_an_invalid_timeout(value: str) -> None:
+    with (
+        patch("sys.argv", ["hurl-orchestra", "--timeout", value]),
+        pytest.raises(SystemExit),
+    ):
+        main()

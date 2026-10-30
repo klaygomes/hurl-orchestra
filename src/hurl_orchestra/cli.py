@@ -63,6 +63,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--secrets-file",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Give this file of secrets to each hurl call with --secrets-file."
+            " Hurl redacts the values from its logs and reports."
+        ),
+    )
+    parser.add_argument(
+        "--inject-as-variables",
+        action="store_true",
+        help=(
+            "Give captured values to hurl as variables, not secrets. Hurl then"
+            " writes them in its reports. Do not use it with real credentials."
+        ),
+    )
+    parser.add_argument(
         "--no-deps",
         dest="resolve_deps",
         action="store_false",
@@ -156,6 +173,8 @@ def main() -> None:
             strict=args.strict,
             json_plan=args.json,
             env_file=args.env_file,
+            secrets_file=args.secrets_file,
+            inject_as_variables=args.inject_as_variables,
             timeout_seconds=args.timeout,
             jobs=args.jobs,
         )
@@ -170,6 +189,8 @@ def main() -> None:
             strict=args.strict,
             json_plan=args.json,
             env_file=args.env_file,
+            secrets_file=args.secrets_file,
+            inject_as_variables=args.inject_as_variables,
             timeout_seconds=args.timeout,
             jobs=args.jobs,
         )

@@ -596,3 +596,18 @@ def test_known_failure_link_is_shown(
     out = capsys.readouterr().out
     assert ok is True
     assert "(https://example.test/runbook)" in out
+
+
+def test_match_describe_includes_the_documentation_link() -> None:
+    from hurl_orchestra.known_failures import KnownFailure, KnownFailureMatch
+
+    failure = KnownFailure(name="pool", reason="shared db", link="https://x.test/pool")
+    match = KnownFailureMatch(failure, ("status 500",))
+    assert match.describe().endswith("(https://x.test/pool)")
+
+
+def test_stderr_pattern_that_does_not_match_returns_none(tmp_path: Path) -> None:
+    failures = parse_known_failures(
+        [{"name": "e", "reason": "r", "stderr": "connection refused"}], "node"
+    )
+    assert match_known_failure(failures, tmp_path, "timed out", TODAY)[0] is None

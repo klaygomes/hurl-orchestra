@@ -337,3 +337,35 @@ def test_write_diagram_resolves_deps_to_stdout_without_log_lines(
     assert ok is True
     assert out.startswith("# hurl-orchestra dependency diagram")
     assert "Resolved dependencies" not in out
+
+
+def test_write_diagram_reports_a_directory_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    output = tmp_path / "out.md"
+    original_open = Path.open
+
+    def raise_directory_error(self: Path, *args: object, **kwargs: object) -> object:
+        if self == output:
+            raise IsADirectoryError
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", raise_directory_error)
+    assert write_diagram(sorted(tmp_path.glob("*.hurl")), output=str(output)) is False
+
+
+def test_write_diagram_reports_an_os_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+    output = tmp_path / "out.md"
+    original_open = Path.open
+
+    def raise_os_error(self: Path, *args: object, **kwargs: object) -> object:
+        if self == output:
+            raise OSError("disk full")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", raise_os_error)
+    assert write_diagram(sorted(tmp_path.glob("*.hurl")), output=str(output)) is False

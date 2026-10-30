@@ -7,9 +7,10 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import lru_cache
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any, Literal
@@ -33,6 +34,21 @@ class GraphError(Exception):
 
 MAX_WORKERS = min(32, (os.cpu_count() or 1) + 4)
 DEFAULT_TIMEOUT_SECONDS = 300
+TIMEOUT_GRACE_SECONDS = 5
+MIN_HURL_VERSION = (7, 1, 0)
+TESTED_HURL_VERSION = (8, 1, 0)
+HURL_CONFIG_MIN_VERSION = (8, 1, 0)
+EXIT_COMMANDLINE = 1
+EXIT_PARSING = 2
+EXIT_RUNTIME = 3
+
+# Options that hurl-orchestra owns. Hurl rejects most of them when they appear
+# twice, so a user-supplied copy must become a clear error instead.
+RESERVED_HURL_FLAGS = {
+    "--test": "hurl-orchestra always runs Hurl in test mode; remove it",
+    "--report-json": "use --report-zip or --report-ctrf instead",
+    "--secrets-file": "use the hurl-orchestra --secrets-file option instead",
+}
 
 _SAFE_NODE_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
 _FRONTMATTER_KEYS = {
@@ -160,6 +176,96 @@ def _parse_priority(priority_value: Any, t_id: str) -> int:
     return priority_value
 
 
+def format_version(version: tuple[int, int, int]) -> str:
+    """Return a version tuple as ``major.minor.patch``."""
+    return ".".join(str(part) for part in version)
+
+
+def _read_hurl_version() -> tuple[int, int, int] | None:
+    """Run ``hurl --version`` and return the version, or None."""
+    try:
+        result = subprocess.run(
+            ["hurl", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r"\bhurl (\d+)\.(\d+)\.(\d+)", result.stdout or "")
+    if match is None:
+        return None
+    major, minor, patch = (int(part) for part in match.groups())
+    return major, minor, patch
+
+
+@lru_cache(maxsize=1)
+def detect_hurl_version() -> tuple[int, int, int] | None:
+    """Return the Hurl version on PATH, or None when it cannot be read."""
+    return _read_hurl_version()
+
+
+def check_hurl_version() -> tuple[bool, tuple[int, int, int] | None]:
+    """Check the Hurl binary and return ``(usable, version)``."""
+    if shutil.which("hurl") is None:
+        print("ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev")
+        return False, None
+    version = detect_hurl_version()
+    if version is None:
+        print(
+            "WARNING: cannot read the hurl version. hurl-orchestra needs "
+            f"Hurl {format_version(MIN_HURL_VERSION)} or later."
+        )
+        return True, None
+    if version < MIN_HURL_VERSION:
+        print(
+            f"ERROR: hurl {format_version(version)} is too old; "
+            f"hurl-orchestra needs {format_version(MIN_HURL_VERSION)} or "
+            f"later ({format_version(TESTED_HURL_VERSION)} is tested)."
+        )
+        return False, version
+    return True, version
+
+
+def hurl_config_path(environ: Mapping[str, str] | None = None) -> Path | None:
+    """Return the Hurl 8.1+ config file that applies to each call, if any."""
+    env = os.environ if environ is None else environ
+    if env.get("XDG_CONFIG_HOME"):
+        base = Path(env["XDG_CONFIG_HOME"])
+    else:
+        home = env.get("HOME")
+        base = Path(home) / ".config" if home else Path.home() / ".config"
+    candidate = base / "hurl" / "config"
+    return candidate if candidate.is_file() else None
+
+
+def _flag_name(part: str) -> str:
+    return part.split("=", 1)[0]
+
+
+def reject_reserved_hurl_flags(args: list[str], where: str) -> None:
+    """Raise GraphError when *args* contain an option hurl-orchestra owns."""
+    for part in args:
+        flag = _flag_name(part)
+        if flag in RESERVED_HURL_FLAGS:
+            raise GraphError(
+                f"ERROR: {where}: {flag} is managed by hurl-orchestra; "
+                f"{RESERVED_HURL_FLAGS[flag]}"
+            )
+
+
+def _has_max_time(args: list[str]) -> bool:
+    """Whether the user passes Hurl's own ``--max-time`` option."""
+    for part in args:
+        if part in ("--max-time", "-m") or part.startswith("--max-time="):
+            return True
+        if part.startswith("-m") and not part.startswith("--") and len(part) > 2:
+            return True
+    return False
+
+
 def _parse_args(args: Any, t_id: str) -> list[str]:
     if args is None:
         return []
@@ -191,6 +297,13 @@ def _parse_args(args: Any, t_id: str) -> list[str]:
                 f"got {type(item).__name__}"
             )
     return flat
+
+
+def _parse_hurl_args(args: Any, t_id: str) -> list[str]:
+    """Parse the ``args`` field and reject flags that hurl-orchestra owns."""
+    parsed = _parse_args(args, t_id)
+    reject_reserved_hurl_flags(parsed, f"args for '{t_id}'")
+    return parsed
 
 
 def _parse_known_failures(raw: Any, t_id: str) -> list[KnownFailure]:
@@ -262,6 +375,13 @@ def find_env_file(test_dir: Path, env_file: str | None = None) -> Path | None:
     return candidate.absolute() if candidate.exists() else None
 
 
+def find_secrets_file(secrets_file: str | None = None) -> Path | None:
+    """Return the secrets file that every hurl call receives, if any."""
+    if secrets_file is None:
+        return None
+    return Path(secrets_file).expanduser().absolute()
+
+
 def unused_env_files(files: list[str], chosen: Path | None) -> list[Path]:
     """Return ``.env`` files next to *files* that the run will not read."""
     parents = sorted({Path(f).parent for f in files})
@@ -293,16 +413,52 @@ def _collect_injected_variables(
     return injected
 
 
+def _property_line(name: str, value: Any) -> str:
+    """Return one ``name=value`` line, rejecting line-breaking values."""
+    text = str(value)
+    if any(char in text for char in ("\n", "\r", "\x00")):
+        raise ValueError(
+            f"captured value for '{name}' contains a line break or NUL byte"
+        )
+    return f"{name}={text}\n"
+
+
 def _write_variables_file(path: Path, variables: dict[str, Any]) -> None:
     """Write a Hurl variables file, rejecting line-breaking values."""
+    path.write_text(
+        "".join(_property_line(name, value) for name, value in variables.items()),
+        encoding="utf-8",
+    )
+
+
+def _properties_entries(path: Path) -> list[tuple[str | None, str]]:
+    """Return ``(name, line)`` pairs of a Hurl variables or secrets file."""
+    entries: list[tuple[str | None, str]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            entries.append((None, line))
+            continue
+        name, separator, _ = line.partition("=")
+        entries.append((name.strip() if separator else None, line))
+    return entries
+
+
+def _write_secrets_file(
+    path: Path, global_path: Path | None, variables: dict[str, Any]
+) -> None:
+    """Write a secrets file where injected values override global secrets.
+
+    Hurl rejects a secret name defined twice, so the global file and the
+    captured values must become one file when both are present.
+    """
     lines: list[str] = []
-    for name, value in variables.items():
-        text = str(value)
-        if any(char in text for char in ("\n", "\r", "\x00")):
-            raise ValueError(
-                f"captured value for '{name}' contains a line break or NUL byte"
-            )
-        lines.append(f"{name}={text}\n")
+    if global_path is not None:
+        for name, line in _properties_entries(global_path):
+            if name is not None and name in variables:
+                continue
+            lines.append(f"{line}\n")
+    lines.extend(_property_line(name, value) for name, value in variables.items())
     path.write_text("".join(lines), encoding="utf-8")
 
 
@@ -347,7 +503,7 @@ def _run_hurl(
             stderr=subprocess.PIPE,
             text=True,
             check=False,
-            timeout=timeout_seconds,
+            timeout=timeout_seconds + TIMEOUT_GRACE_SECONDS,
             cwd=str(Path(node["path"]).parent),
         )
     except subprocess.TimeoutExpired:
@@ -376,25 +532,27 @@ def run_step(
     strict: bool = False,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
+    secrets_path: Path | None = None,
+    inject_as_secrets: bool = True,
 ) -> StepResult:
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
 
     A failure that matches one of the node's ``known_failures`` is reported as
     ``known_failure`` unless *strict* is set. A failure that matches the node's
-    ``retry`` policy is attempted again after an exponential backoff.
+    ``retry`` policy is attempted again after an exponential backoff. Captured
+    values travel as Hurl secrets by default, so Hurl redacts them from its
+    logs and reports. Set *inject_as_secrets* to false to send them through a
+    variables file instead.
     """
     injected = _collect_injected_variables(node_id, shared_vars, graph)
     report_file = node_report_dir / "report.json"
     policy: RetryPolicy = node.get("retry") or RetryPolicy()
-    cmd = [
-        "hurl",
-        "--test",
-        *global_args,
-        *extra_hurl_args,
-        *node.get("hurl_args", []),
-        "--report-json",
-        str(node_report_dir),
-    ]
+    node_args = node.get("hurl_args", [])
+    user_args = [*extra_hurl_args, *node_args]
+    cmd = ["hurl", "--test", *global_args]
+    if not _has_max_time(user_args):
+        cmd.extend(["--max-time", str(timeout_seconds)])
+    cmd.extend([*user_args, "--report-json", str(node_report_dir)])
 
     notes: list[str] = []
     attempt = 1
@@ -404,16 +562,22 @@ def run_step(
         # never appear in the process list.
         with tempfile.TemporaryDirectory() as private_dir:
             attempt_cmd = list(cmd)
-            if injected:
+            if inject_as_secrets and injected:
+                secrets_file = Path(private_dir) / "secrets.env"
+                _write_secrets_file(secrets_file, secrets_path, injected)
+                attempt_cmd.extend(["--secrets-file", str(secrets_file)])
+            elif injected:
                 variables_file = Path(private_dir) / "variables.env"
                 _write_variables_file(variables_file, injected)
                 attempt_cmd.extend(["--variables-file", str(variables_file)])
+            if secrets_path is not None and not (inject_as_secrets and injected):
+                attempt_cmd.extend(["--secrets-file", str(secrets_path)])
 
             outcome = _run_hurl(node, attempt_cmd, timeout_seconds)
 
         if outcome is None:
             detail = f"Hurl timed out after {timeout_seconds} seconds\n"
-            returncode, stderr = 1, detail
+            returncode, stderr = EXIT_RUNTIME, detail
         else:
             returncode, stderr = outcome
             detail = stderr
@@ -421,8 +585,16 @@ def run_step(
         if returncode == 0:
             break
 
+        if returncode == EXIT_COMMANDLINE:
+            detail = "Hurl rejected the command line (exit code 1).\n" + detail
+        elif returncode == EXIT_PARSING:
+            detail = "Hurl could not parse the file (exit code 2).\n" + detail
+
         response = response_for(node_report_dir)
-        if not policy.should_retry(attempt, response, node_report_dir, stderr):
+        retryable = returncode not in (EXIT_COMMANDLINE, EXIT_PARSING)
+        if not retryable or not policy.should_retry(
+            attempt, response, node_report_dir, stderr
+        ):
             return _failure(
                 node_id, node, "".join(notes) + detail, node_report_dir, strict
             )
@@ -516,6 +688,9 @@ def _execute(
     strict: bool = False,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     max_workers: int = MAX_WORKERS,
+    *,
+    secrets_path: Path | None = None,
+    inject_as_secrets: bool = True,
 ) -> RunOutcome:
     """Run nodes in topological order, writing each report to *reports_path*.
 
@@ -567,6 +742,8 @@ def _execute(
                         report_dirs[node_id],
                         strict,
                         timeout_seconds,
+                        secrets_path=secrets_path,
+                        inject_as_secrets=inject_as_secrets,
                     ): node_id
                     for node_id in group
                 }
@@ -695,7 +872,7 @@ def load_templates(hurl_paths: list[Path]) -> Nodes:
             "outputs": _parse_outputs(post.get("outputs", []), t_id),
             "deps": _parse_deps(post.get("deps", []), t_id),
             "priority": _parse_priority(post.get("priority", 0), t_id),
-            "hurl_args": _parse_args(post.get("args"), t_id),
+            "hurl_args": _parse_hurl_args(post.get("args"), t_id),
             "known_failures": _parse_known_failures(post.get("known_failures"), t_id),
             "retry": _parse_retry(post.get("retry"), t_id),
         }
@@ -781,11 +958,15 @@ def plan_document(
     graph: Graph,
     resolved: list[str] | None = None,
     env_file: Path | None = None,
+    secrets_file: Path | None = None,
+    hurl_config: Path | None = None,
 ) -> dict[str, Any]:
     """Describe the execution plan as a JSON-serialisable document."""
     return {
         "ok": True,
         "env_file": str(env_file) if env_file is not None else None,
+        "secrets_file": str(secrets_file) if secrets_file is not None else None,
+        "hurl_config": str(hurl_config) if hurl_config is not None else None,
         "resolved": resolved or [],
         "waves": plan_waves(nodes, graph),
         "nodes": [
@@ -845,6 +1026,51 @@ def _resolve_nodes(
     return resolve_files([Path(f) for f in files], resolve_deps)
 
 
+def _write_reports(
+    nodes: Nodes,
+    reports_root: Path,
+    test_dir: Path,
+    report_ctrf: str | None,
+    report_zip: str,
+    start_ms: int,
+    stop_ms: int,
+    outcome: RunOutcome,
+) -> bool:
+    """Write the CTRF report and the zip archive. Return False on a zip error."""
+    if report_ctrf is not None:
+        ctrf_path = (
+            Path(report_ctrf)
+            if Path(report_ctrf).is_absolute()
+            else test_dir / Path(report_ctrf)
+        )
+        try:
+            write_ctrf(
+                list(nodes.keys()),
+                reports_root,
+                ctrf_path,
+                start_ms,
+                stop_ms,
+                tolerated=outcome.tolerated,
+                skipped_known=outcome.skipped_known,
+            )
+            print(f"CTRF report saved to {ctrf_path}")
+        except OSError as exc:
+            print(f"WARNING: Failed to write CTRF report: {exc}")
+
+    report_path = Path(report_zip)
+    if report_path.is_absolute():
+        zip_base = str(report_path.with_suffix(""))
+    else:
+        zip_base = str(test_dir / report_path.with_suffix(""))
+    try:
+        archive = shutil.make_archive(zip_base, "zip", reports_root)
+    except OSError as exc:
+        print(f"ERROR: Failed to write report archive: {exc}")
+        return False
+    print(f"Report saved to {archive}")
+    return True
+
+
 def _print_run_error(message: str, json_plan: bool) -> None:
     if json_plan:
         print(json.dumps({"ok": False, "error": message}, indent=2))
@@ -857,9 +1083,15 @@ def _print_run_context(
     files: list[str] | None,
     env_file: str | None,
     pulled: list[str],
+    secrets_file: Path | None = None,
+    hurl_config: Path | None = None,
 ) -> None:
     if variables_file is not None:
         print(f"Variables file: {variables_file}")
+    if secrets_file is not None:
+        print(f"Secrets file: {secrets_file}")
+    if hurl_config is not None:
+        print(f"Hurl config: {hurl_config}")
     if files is not None and env_file is None:
         for unused in unused_env_files(files, variables_file):
             print(
@@ -883,6 +1115,8 @@ def run_hurl_orchestrator(
     strict: bool = False,
     json_plan: bool = False,
     env_file: str | None = None,
+    secrets_file: str | None = None,
+    inject_as_variables: bool = False,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     jobs: int | None = None,
 ) -> bool:
@@ -896,7 +1130,10 @@ def run_hurl_orchestrator(
     With *dry_run* the execution plan is printed and nothing is executed; with
     *json_plan* as well, the plan (or the graph error) is printed as JSON.
     Every hurl call receives *env_file*, or else ``.env`` from *test_dir*, as
-    ``--variables-file``.
+    ``--variables-file``. Values captured by upstream nodes reach Hurl as
+    secrets, so Hurl redacts them from its logs and reports; set
+    *inject_as_variables* to send them through a variables file instead.
+    *secrets_file* gives user-defined secrets to every call.
     With *strict* a failure matching a node's ``known_failures`` still fails the
     run.  After execution a zip archive of all hurl reports is written to
     *report_zip* relative to *test_dir*.  *timeout_seconds* limits each Hurl
@@ -912,19 +1149,32 @@ def run_hurl_orchestrator(
         print("ERROR: jobs must be at least 1")
         return False
 
-    if not dry_run and shutil.which("hurl") is None:
-        print("ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev")
-        return False
+    hurl_version: tuple[int, int, int] | None = None
+    if not dry_run:
+        usable, hurl_version = check_hurl_version()
+        if not usable:
+            return False
 
     test_dir = Path(test_dir_str)
     shared_vars: dict[str, dict[str, Any]] = {}
     extra = extra_hurl_args or []
     variables_file = find_env_file(test_dir, env_file)
+    secrets_path = find_secrets_file(secrets_file)
+    hurl_config = hurl_config_path()
+    if (
+        not dry_run
+        and hurl_config is not None
+        and (hurl_version is None or hurl_version < HURL_CONFIG_MIN_VERSION)
+    ):
+        hurl_config = None
     global_args = get_global_args(test_dir, env_file)
 
     try:
+        reject_reserved_hurl_flags(extra, "the Hurl flags after --")
         if variables_file is not None and not variables_file.is_file():
             raise GraphError(f"ERROR: env file not found: {variables_file}")
+        if secrets_path is not None and not secrets_path.is_file():
+            raise GraphError(f"ERROR: secrets file not found: {secrets_path}")
         nodes, graph, pulled = _resolve_nodes(test_dir, files, resolve_deps)
     except GraphError as exc:
         _print_run_error(str(exc), dry_run and json_plan)
@@ -937,11 +1187,15 @@ def run_hurl_orchestrator(
         return False
 
     if dry_run and json_plan:
-        document = plan_document(nodes, graph, pulled, variables_file)
+        document = plan_document(
+            nodes, graph, pulled, variables_file, secrets_path, hurl_config
+        )
         print(json.dumps(document, indent=2))
         return True
 
-    _print_run_context(variables_file, files, env_file, pulled)
+    _print_run_context(
+        variables_file, files, env_file, pulled, secrets_path, hurl_config
+    )
 
     if dry_run:
         _print_plan(nodes, graph)
@@ -960,6 +1214,8 @@ def run_hurl_orchestrator(
                 strict,
                 timeout_seconds,
                 jobs or MAX_WORKERS,
+                secrets_path=secrets_path,
+                inject_as_secrets=not inject_as_variables,
             )
         except CycleError as exc:
             print(f"Circular dependency: {exc}")
@@ -969,37 +1225,16 @@ def run_hurl_orchestrator(
             return False
         stop_ms = int(time.time() * 1000)
         _print_tolerated_summary(outcome.tolerated)
-
-        if report_ctrf is not None:
-            ctrf_path = (
-                Path(report_ctrf)
-                if Path(report_ctrf).is_absolute()
-                else test_dir / Path(report_ctrf)
-            )
-            try:
-                write_ctrf(
-                    list(nodes.keys()),
-                    Path(reports_root),
-                    ctrf_path,
-                    start_ms,
-                    stop_ms,
-                    tolerated=outcome.tolerated,
-                    skipped_known=outcome.skipped_known,
-                )
-                print(f"CTRF report saved to {ctrf_path}")
-            except OSError as exc:
-                print(f"WARNING: Failed to write CTRF report: {exc}")
-
-        report_path = Path(report_zip)
-        if report_path.is_absolute():
-            zip_base = str(report_path.with_suffix(""))
-        else:
-            zip_base = str(test_dir / report_path.with_suffix(""))
-        try:
-            archive = shutil.make_archive(zip_base, "zip", reports_root)
-        except OSError as exc:
-            print(f"ERROR: Failed to write report archive: {exc}")
+        if not _write_reports(
+            nodes,
+            Path(reports_root),
+            test_dir,
+            report_ctrf,
+            report_zip,
+            start_ms,
+            stop_ms,
+            outcome,
+        ):
             return False
-        print(f"Report saved to {archive}")
 
     return outcome.success

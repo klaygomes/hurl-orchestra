@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
@@ -85,8 +86,8 @@ def sequence(outcomes: list[tuple[int, str, list[dict] | None]]) -> object:
     return _run
 
 
-THROTTLED = (1, "error: Assert status code\n", report(call(429)))
-BROKEN = (1, "error: Assert status code\n", report(call(500)))
+THROTTLED = (4, "error: Assert status code\n", report(call(429)))
+BROKEN = (4, "error: Assert status code\n", report(call(500)))
 PASSING = (0, "", report(call(200), success=True))
 
 
@@ -363,7 +364,7 @@ def test_only_the_final_attempt_survives_in_the_report(tmp_path: Path) -> None:
 def test_retry_honours_a_retry_after_header(tmp_path: Path) -> None:
     slept: list[float] = []
     throttled = (
-        1,
+        4,
         "error\n",
         report(call(429, {"Retry-After": "2"})),
     )
@@ -388,3 +389,86 @@ def test_unknown_retry_header_key_is_rejected() -> None:
             },
             "n",
         )
+
+
+def test_runtime_failure_is_retried(tmp_path: Path) -> None:
+    slept: list[float] = []
+    runtime = (3, "error: HTTP connection\n", report())
+    data = node({"attempts": 2, "backoff_ms": 10, "jitter": "none"}, tmp_path)
+    with patch("subprocess.run", side_effect=sequence([runtime, PASSING])):
+        result = step(data, tmp_path / "n", slept)
+
+    assert result.status == "passed"
+    assert len(slept) == 1
+
+
+def test_command_line_failure_is_not_retried(tmp_path: Path) -> None:
+    slept: list[float] = []
+    bad_option = (1, "error: unexpected argument\n", None)
+    data = node({"attempts": 3, "backoff_ms": 10}, tmp_path)
+    with patch("subprocess.run", side_effect=sequence([bad_option])):
+        result = step(data, tmp_path / "n", slept)
+
+    assert result.status == "failed"
+    assert "rejected the command line" in result.message
+    assert slept == []
+
+
+def _condition(**kwargs: object):
+    from hurl_orchestra.retry import RetryCondition
+
+    return RetryCondition(**kwargs)
+
+
+def test_condition_describe_lists_each_signature() -> None:
+    condition = _condition(
+        status=429,
+        header_name="Retry-After",
+        header_pattern=re.compile("2"),
+        body_pattern=re.compile("busy"),
+        stderr_pattern=re.compile("error"),
+    )
+    assert condition.describe() == (
+        "status 429, header Retry-After ~ /2/, body ~ /busy/, stderr ~ /error/"
+    )
+    assert _condition().describe() == ""
+
+
+def test_condition_with_header_does_not_match_without_response(tmp_path: Path) -> None:
+    condition = _condition(header_name="Retry-After", header_pattern=re.compile("2"))
+    assert condition.matches(None, tmp_path, "") is False
+
+
+def test_condition_with_body_does_not_match_without_response(tmp_path: Path) -> None:
+    condition = _condition(body_pattern=re.compile("busy"))
+    assert condition.matches(None, tmp_path, "") is False
+
+
+def test_retry_after_blank_value_is_none() -> None:
+    assert retry_after_ms(response(429, {"Retry-After": "   "})) is None
+
+
+def test_retry_after_without_timezone_is_accepted() -> None:
+    date = "Mon, 01 Jan 2030 00:00:00"
+    delay = retry_after_ms(response(429, {"Retry-After": date}))
+    assert delay is not None and delay >= 0
+
+
+def test_when_entry_must_be_a_mapping() -> None:
+    with pytest.raises(RetryError, match="must be a mapping"):
+        parse_retry({"attempts": 2, "when": [429]}, "n")
+
+
+def test_header_must_be_a_mapping_with_a_name() -> None:
+    with pytest.raises(RetryError, match="'name' and 'pattern'"):
+        parse_retry({"attempts": 2, "when": [{"header": "Retry-After"}]}, "n")
+
+
+def test_body_pattern_must_be_a_string() -> None:
+    with pytest.raises(RetryError, match="must be a string"):
+        parse_retry({"attempts": 2, "when": [{"body": 3}]}, "n")
+
+
+def test_jitter_must_be_a_string_or_boolean() -> None:
+    with pytest.raises(RetryError, match="'full', 'none' or a boolean"):
+        parse_retry({"attempts": 2, "jitter": 1}, "n")
