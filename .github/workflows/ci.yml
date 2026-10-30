@@ -33,7 +33,7 @@ jobs:
         run: mypy src
 
       - name: Test
-        run: pytest --cov=hurl_orchestra --cov-report=xml --cov-fail-under=94 tests/
+        run: pytest --cov=hurl_orchestra --cov-report=xml --cov-fail-under=98 tests/
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
@@ -43,8 +43,13 @@ jobs:
 
   integration:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        hurl-version: ["7.1.0", "8.1.0"]
+    name: integration (hurl ${{ matrix.hurl-version }})
     env:
-      HURL_VERSION: "8.1.0"
+      HURL_VERSION: ${{ matrix.hurl-version }}
     steps:
       - uses: actions/checkout@v5
 
