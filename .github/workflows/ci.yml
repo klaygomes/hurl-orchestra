@@ -42,7 +42,7 @@ jobs:
           path: coverage.xml
 
   integration:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       HURL_VERSION: "8.1.0"
     steps:
