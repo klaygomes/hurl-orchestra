@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from unittest.mock import patch
 
 import pytest
@@ -9,8 +10,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def hurl_on_path() -> pytest.FixtureRequest:
-    """Pretend hurl is installed for all tests that don't test its absence."""
-    with patch("shutil.which", return_value="/usr/bin/hurl"):
+    """Use the real hurl when present, otherwise pretend it is installed."""
+    with patch("shutil.which", return_value=shutil.which("hurl") or "/usr/bin/hurl"):
         yield
 
 
