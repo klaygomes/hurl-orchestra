@@ -9,6 +9,42 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Format check
+        run: ruff format src tests --check
+
+      - name: Type check
+        run: mypy src
+
+      - name: Test
+        run: pytest --cov=hurl_orchestra --cov-report=xml --cov-fail-under=94 tests/
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      HURL_VERSION: "8.1.0"
     steps:
       - uses: actions/checkout@v5
 
@@ -19,23 +55,15 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      - name: Lint
-        run: ruff check src
+      - name: Install Hurl
+        run: |
+          curl --fail --silent --location --output /tmp/hurl.deb \
+            "https://github.com/Orange-OpenSource/hurl/releases/download/${HURL_VERSION}/hurl_${HURL_VERSION}_amd64.deb"
+          sudo apt-get update
+          sudo apt-get install -y /tmp/hurl.deb
 
-      - name: Format check
-        run: ruff format src --check
-
-      - name: Type check
-        run: mypy src
-
-      - name: Test
-        run: pytest --cov=hurl_orchestra --cov-report=xml tests/
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage
-          path: coverage.xml
+      - name: Test against the real Hurl binary
+        run: pytest -q tests/test_integration.py
 
   docs:
     runs-on: ubuntu-latest

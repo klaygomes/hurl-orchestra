@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 from hurl_orchestra.visualize import (
+    GraphError,
     _escape_label,
     _node_label,
     _render_flowchart,
     _safe_id_map,
-    GraphError,
     build_diagram,
     write_diagram,
 )
@@ -46,8 +46,6 @@ def hurl_file(
     path.write_text(content)
 
 
-
-
 def test_safe_id_replaces_hyphens() -> None:
     m = _safe_id_map(["auth-v2"])
     assert m["auth-v2"] == "node_0"
@@ -67,8 +65,6 @@ def test_safe_id_collision_gets_unique_nodes() -> None:
 def test_safe_id_original_id_preserved_as_key() -> None:
     m = _safe_id_map(["auth-v2"])
     assert "auth-v2" in m
-
-
 
 
 def test_node_label_zero_priority_shows_out_count() -> None:
@@ -123,7 +119,10 @@ def test_flowchart_includes_isolated_node(tmp_path: Path) -> None:
 def test_flowchart_edge_direction_dep_to_dependent(tmp_path: Path) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth")
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
-    nodes = {"auth": {"outputs": [], "priority": 0}, "profile": {"outputs": [], "priority": 0}}
+    nodes = {
+        "auth": {"outputs": [], "priority": 0},
+        "profile": {"outputs": [], "priority": 0},
+    }
     graph: dict[str, set[str]] = {"auth": set(), "profile": {"auth"}}
     safe_ids = _safe_id_map(nodes.keys())
     fc = _render_flowchart(nodes, graph, safe_ids)
@@ -183,12 +182,15 @@ def test_flowchart_includes_isolated_node_when_rendering(tmp_path: Path) -> None
 
 
 def test_flowchart_quotes_node_label_with_comma() -> None:
-    nodes = {"a,b": {"outputs": ["x"], "priority": 0}, "c": {"outputs": [], "priority": 0}}
+    nodes = {
+        "a,b": {"outputs": ["x"], "priority": 0},
+        "c": {"outputs": [], "priority": 0},
+    }
     graph: dict[str, set[str]] = {"a,b": set(), "c": {"a,b"}}
     safe_ids = _safe_id_map(nodes)
     flowchart = _render_flowchart(nodes, graph, safe_ids)
     assert f'{safe_ids["a,b"]}["a,b [out:1]"]' in flowchart
-    assert f'{safe_ids["a,b"]} --> {safe_ids["c"]}' in flowchart
+    assert f"{safe_ids['a,b']} --> {safe_ids['c']}" in flowchart
 
 
 def test_render_flowchart_rejects_dangling_dependencies() -> None:
@@ -205,8 +207,6 @@ def test_markdown_contains_flowchart_heading(tmp_path: Path) -> None:
     assert "## Flowchart" in diagram
 
 
-
-
 def test_markdown_contains_generator_footer(tmp_path: Path) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
     diagram = build_diagram(sorted(tmp_path.glob("*.hurl")))
@@ -219,8 +219,6 @@ def test_empty_hurl_path_list_produces_diagram() -> None:
     assert diagram is not None
     assert "## Flowchart" in diagram
     assert "## Dependency graph" not in diagram
-
-
 
 
 def test_build_diagram_raises_graph_error_on_missing_dep(tmp_path: Path) -> None:
@@ -237,7 +235,7 @@ def test_build_diagram_raises_graph_error_on_cycle(tmp_path: Path) -> None:
 
 
 def test_escape_label_quotes_and_brackets() -> None:
-    assert _escape_label('a"b[c]') == 'a&quot;b&#91;c&#93;'
+    assert _escape_label('a"b[c]') == "a&quot;b&#91;c&#93;"
 
 
 def test_escape_label_escapes_angle_brackets() -> None:

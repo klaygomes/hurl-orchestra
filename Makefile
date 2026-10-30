@@ -6,16 +6,16 @@ BIN  := $(VENV)/bin
 .PHONY: lint format typecheck test check build publish publish-test docs docs-cli docs-check
 
 lint:
-	$(BIN)/ruff check src
+	$(BIN)/ruff check src tests
 
 format:
-	$(BIN)/ruff format src
+	$(BIN)/ruff format src tests
 
 typecheck:
 	$(BIN)/mypy src
 
 test:
-	$(BIN)/pytest --cov=hurl_orchestra --cov-report=term-missing --cov-report=html tests/ && \
+	$(BIN)/pytest --cov=hurl_orchestra --cov-report=term-missing --cov-report=html --cov-fail-under=94 tests/ && \
 	$(BIN)/python scripts/serve.py htmlcov
 
 check: lint format typecheck test
