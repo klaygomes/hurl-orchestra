@@ -6,6 +6,19 @@ from .orchestrator import run_hurl_orchestrator
 from .visualize import write_diagram
 
 
+def _positive_int(value: str) -> int:
+    """Return a positive integer for argparse."""
+    try:
+        parsed = int(value)
+    except ValueError as err:
+        raise argparse.ArgumentTypeError(f"expected an integer; got {value!r}") from err
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(
+            f"expected an integer of 1 or more; got {parsed}"
+        )
+    return parsed
+
+
 def _resolve_hurl_paths(paths: list[str]) -> list[Path]:
     """Resolve CLI paths to a sorted list of .hurl files."""
     if len(paths) == 1 and not paths[0].endswith(".hurl"):
@@ -74,6 +87,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Make a failure that matches known_failures fail the run.",
     )
     parser.add_argument(
+        "--timeout",
+        type=_positive_int,
+        default=300,
+        metavar="SECONDS",
+        help="Limit each Hurl process to this many seconds. The default is 300.",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=_positive_int,
+        default=None,
+        metavar="N",
+        help="Run at most N Hurl processes at the same time.",
+    )
+    parser.add_argument(
         "--diagram",
         action="store_true",
         help="Write a Mermaid diagram of the graph. Do not run the tests.",
@@ -129,6 +156,8 @@ def main() -> None:
             strict=args.strict,
             json_plan=args.json,
             env_file=args.env_file,
+            timeout_seconds=args.timeout,
+            jobs=args.jobs,
         )
     else:
         ok = run_hurl_orchestrator(
@@ -141,6 +170,8 @@ def main() -> None:
             strict=args.strict,
             json_plan=args.json,
             env_file=args.env_file,
+            timeout_seconds=args.timeout,
+            jobs=args.jobs,
         )
 
     if not ok:

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -31,6 +32,18 @@ class GraphError(Exception):
 
 
 MAX_WORKERS = min(32, (os.cpu_count() or 1) + 4)
+DEFAULT_TIMEOUT_SECONDS = 300
+
+_SAFE_NODE_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
+_FRONTMATTER_KEYS = {
+    "id",
+    "deps",
+    "outputs",
+    "priority",
+    "args",
+    "known_failures",
+    "retry",
+}
 
 Nodes = dict[str, dict[str, Any]]
 Graph = dict[str, set[str]]
@@ -62,7 +75,18 @@ def _validate_identifier(value: Any, description: str) -> str:
         raise GraphError(
             f"ERROR: {description} must not contain whitespace; got {value!r}"
         )
-    return value
+    return str(value)
+
+
+def _validate_node_id(value: Any, description: str) -> str:
+    """Validate an ID that is also used as a directory name."""
+    value = _validate_identifier(value, description)
+    if value in {".", ".."} or not _SAFE_NODE_ID.fullmatch(value):
+        raise GraphError(
+            f"ERROR: {description} must contain only letters, digits, '.', '_' "
+            f"or '-', and must not be '.' or '..'; got {value!r}"
+        )
+    return str(value)
 
 
 def _sanitize_hurl_variable_part(value: str) -> str:
@@ -109,16 +133,16 @@ def _parse_deps(deps: Any, t_id: str) -> list[Any]:
                     f"'{t_id}' must be a list of strings or single-key dicts"
                 )
             for template_name, instance_name in dep.items():
-                _validate_identifier(
+                _validate_node_id(
                     template_name,
                     f"alias template name for node '{t_id}'",
                 )
-                _validate_identifier(
+                _validate_node_id(
                     instance_name,
                     f"alias instance name for node '{t_id}'",
                 )
         elif isinstance(dep, str):
-            _validate_identifier(dep, f"dependency id for node '{t_id}'")
+            _validate_node_id(dep, f"dependency id for node '{t_id}'")
         else:
             raise GraphError(
                 f"ERROR: deps for '{t_id}' must contain strings or dicts; "
@@ -129,12 +153,11 @@ def _parse_deps(deps: Any, t_id: str) -> list[Any]:
 
 
 def _parse_priority(priority_value: Any, t_id: str) -> int:
-    try:
-        return int(priority_value)
-    except (TypeError, ValueError) as err:
+    if isinstance(priority_value, bool) or not isinstance(priority_value, int):
         raise GraphError(
             f"ERROR: priority for '{t_id}' must be an integer; got {priority_value!r}"
-        ) from err
+        )
+    return priority_value
 
 
 def _parse_args(args: Any, t_id: str) -> list[str]:
@@ -159,6 +182,7 @@ def _parse_args(args: Any, t_id: str) -> list[str]:
                     f"ERROR: args for '{t_id}' must contain strings or single-key dicts"
                 )
             for key, value in item.items():
+                _validate_identifier(key, f"argument name for node '{t_id}'")
                 prefix = "-" if len(key) == 1 else "--"
                 flat.extend([f"{prefix}{key}", str(value)])
         else:
@@ -233,9 +257,9 @@ def find_env_file(test_dir: Path, env_file: str | None = None) -> Path | None:
     are given.
     """
     if env_file is not None:
-        return Path(env_file)
+        return Path(env_file).expanduser().absolute()
     candidate = test_dir / ".env"
-    return candidate if candidate.exists() else None
+    return candidate.absolute() if candidate.exists() else None
 
 
 def unused_env_files(files: list[str], chosen: Path | None) -> list[Path]:
@@ -269,6 +293,19 @@ def _collect_injected_variables(
     return injected
 
 
+def _write_variables_file(path: Path, variables: dict[str, Any]) -> None:
+    """Write a Hurl variables file, rejecting line-breaking values."""
+    lines: list[str] = []
+    for name, value in variables.items():
+        text = str(value)
+        if any(char in text for char in ("\n", "\r", "\x00")):
+            raise ValueError(
+                f"captured value for '{name}' contains a line break or NUL byte"
+            )
+        lines.append(f"{name}={text}\n")
+    path.write_text("".join(lines), encoding="utf-8")
+
+
 def _failure(
     node_id: str,
     node: dict[str, Any],
@@ -283,10 +320,11 @@ def _failure(
         node.get("known_failures", []), node_report_dir, detail
     )
     if known is not None:
+        link = f" ({known.failure.link})" if known.failure.link else ""
         return StepResult(
             "known_failure",
             f"KNOWN FAILURE: {node_id} [{known.failure.name}] "
-            f"{known.failure.reason}\n{detail}",
+            f"{known.failure.reason}{link}\n{detail}",
             known=known,
         )
     for failure in expired:
@@ -298,6 +336,7 @@ def _failure(
 def _run_hurl(
     node: dict[str, Any],
     cmd: list[str],
+    timeout_seconds: int,
 ) -> tuple[int, str] | None:
     """Run hurl once. Returns (returncode, stderr), or None on timeout."""
     try:
@@ -308,7 +347,7 @@ def _run_hurl(
             stderr=subprocess.PIPE,
             text=True,
             check=False,
-            timeout=300,
+            timeout=timeout_seconds,
             cwd=str(Path(node["path"]).parent),
         )
     except subprocess.TimeoutExpired:
@@ -335,6 +374,7 @@ def run_step(
     extra_hurl_args: list[str],
     node_report_dir: Path,
     strict: bool = False,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
 ) -> StepResult:
     """Execute a single hurl node, injecting upstream variables and capturing outputs.
@@ -366,15 +406,13 @@ def run_step(
             attempt_cmd = list(cmd)
             if injected:
                 variables_file = Path(private_dir) / "variables.env"
-                variables_file.write_text(
-                    "".join(f"{name}={value}\n" for name, value in injected.items())
-                )
+                _write_variables_file(variables_file, injected)
                 attempt_cmd.extend(["--variables-file", str(variables_file)])
 
-            outcome = _run_hurl(node, attempt_cmd)
+            outcome = _run_hurl(node, attempt_cmd, timeout_seconds)
 
         if outcome is None:
-            detail = "Hurl timed out after 300 seconds\n"
+            detail = f"Hurl timed out after {timeout_seconds} seconds\n"
             returncode, stderr = 1, detail
         else:
             returncode, stderr = outcome
@@ -435,6 +473,17 @@ def _ready_by_priority(sorter: TopologicalSorter[str], nodes: Nodes) -> list[str
     )
 
 
+def _node_report_dir(reports_path: Path, node_id: str) -> Path:
+    """Return a per-node report directory inside *reports_path*."""
+    root = reports_path.resolve()
+    candidate = (root / node_id).resolve()
+    if not candidate.is_relative_to(root):
+        raise GraphError(
+            f"ERROR: node id '{node_id}' resolves outside the report directory"
+        )
+    return candidate
+
+
 def _skip_unrunnable(
     node_id: str,
     graph: Graph,
@@ -465,6 +514,8 @@ def _execute(
     extra: list[str],
     reports_path: Path,
     strict: bool = False,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    max_workers: int = MAX_WORKERS,
 ) -> RunOutcome:
     """Run nodes in topological order, writing each report to *reports_path*.
 
@@ -479,7 +530,7 @@ def _execute(
     tolerated: dict[str, KnownFailureMatch] = {}
     skipped_known: dict[str, str] = {}
     overall_success = True
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         while sorter.is_active():
             to_run: list[str] = []
             for node_id in _ready_by_priority(sorter, nodes):
@@ -493,8 +544,11 @@ def _execute(
             if not to_run:
                 continue
 
-            for node_id in to_run:
-                (reports_path / node_id).mkdir(parents=True, exist_ok=True)
+            report_dirs = {
+                node_id: _node_report_dir(reports_path, node_id) for node_id in to_run
+            }
+            for report_dir in report_dirs.values():
+                report_dir.mkdir(parents=True, exist_ok=True)
 
             priorities = sorted(
                 {nodes[nid]["priority"] for nid in to_run}, reverse=True
@@ -510,8 +564,9 @@ def _execute(
                         graph,
                         global_args,
                         extra,
-                        reports_path / node_id,
+                        report_dirs[node_id],
                         strict,
+                        timeout_seconds,
                     ): node_id
                     for node_id in group
                 }
@@ -580,16 +635,23 @@ def _instantiate_template(
             f"{template_name}' not found (used as '{instance_name}')"
         )
     if instance_name in nodes:
+        existing_template = nodes[instance_name].get("template", instance_name)
+        if existing_template != template_name:
+            raise GraphError(
+                f"ERROR: alias '{instance_name}' from template '{template_name}' "
+                f"collides with a node from template '{existing_template}'"
+            )
         return
 
     data = templates[template_name].copy()
+    data["template"] = template_name
     nodes[instance_name] = data
     graph[instance_name] = set()
     for dep in data["deps"]:
         if isinstance(dep, dict):
-            for template_name, dep_instance_name in dep.items():
+            for dep_template_name, dep_instance_name in dep.items():
                 _instantiate_template(
-                    template_name,
+                    dep_template_name,
                     dep_instance_name,
                     templates,
                     nodes,
@@ -604,24 +666,39 @@ def load_templates(hurl_paths: list[Path]) -> Nodes:
     """Parse .hurl frontmatter into templates keyed by node id."""
     templates: Nodes = {}
     for path in hurl_paths:
-        with path.open() as f:
-            post = frontmatter.load(f)
-            t_id = _validate_identifier(
-                post.get("id", path.stem),
-                f"node id for {path.name}",
+        try:
+            with path.open() as f:
+                post = frontmatter.load(f)
+        except Exception as exc:
+            raise GraphError(f"ERROR: cannot parse {path}: {exc}") from exc
+
+        unknown = {str(key) for key in set(post.metadata) - _FRONTMATTER_KEYS}
+        if unknown:
+            raise GraphError(
+                f"ERROR: {path.name} has unknown frontmatter keys: "
+                f"{', '.join(sorted(unknown))}"
             )
-            templates[t_id] = {
-                "path": str(path),
-                "content": post.content,
-                "outputs": _parse_outputs(post.get("outputs", []), t_id),
-                "deps": _parse_deps(post.get("deps", []), t_id),
-                "priority": _parse_priority(post.get("priority", 0), t_id),
-                "hurl_args": _parse_args(post.get("args"), t_id),
-                "known_failures": _parse_known_failures(
-                    post.get("known_failures"), t_id
-                ),
-                "retry": _parse_retry(post.get("retry"), t_id),
-            }
+
+        t_id = _validate_node_id(
+            post.get("id", path.stem),
+            f"node id for {path.name}",
+        )
+        if t_id in templates:
+            existing = templates[t_id]["path"]
+            raise GraphError(
+                f"ERROR: duplicate node id '{t_id}' in {existing} and {path}"
+            )
+        templates[t_id] = {
+            "path": str(path),
+            "template": t_id,
+            "content": post.content,
+            "outputs": _parse_outputs(post.get("outputs", []), t_id),
+            "deps": _parse_deps(post.get("deps", []), t_id),
+            "priority": _parse_priority(post.get("priority", 0), t_id),
+            "hurl_args": _parse_args(post.get("args"), t_id),
+            "known_failures": _parse_known_failures(post.get("known_failures"), t_id),
+            "retry": _parse_retry(post.get("retry"), t_id),
+        }
     return templates
 
 
@@ -768,6 +845,32 @@ def _resolve_nodes(
     return resolve_files([Path(f) for f in files], resolve_deps)
 
 
+def _print_run_error(message: str, json_plan: bool) -> None:
+    if json_plan:
+        print(json.dumps({"ok": False, "error": message}, indent=2))
+    else:
+        print(message)
+
+
+def _print_run_context(
+    variables_file: Path | None,
+    files: list[str] | None,
+    env_file: str | None,
+    pulled: list[str],
+) -> None:
+    if variables_file is not None:
+        print(f"Variables file: {variables_file}")
+    if files is not None and env_file is None:
+        for unused in unused_env_files(files, variables_file):
+            print(
+                f"NOTE: hurl-orchestra does not read {unused} when you give "
+                "files. It reads .env from the current directory. Add "
+                f"--env-file {unused} to read it."
+            )
+    if pulled:
+        print(f"Resolved dependencies: {', '.join(pulled)}")
+
+
 def run_hurl_orchestrator(
     test_dir_str: str = ".",
     *,
@@ -780,6 +883,8 @@ def run_hurl_orchestrator(
     strict: bool = False,
     json_plan: bool = False,
     env_file: str | None = None,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    jobs: int | None = None,
 ) -> bool:
     """Discover, order, and execute ``.hurl`` files in dependency order.
 
@@ -794,11 +899,19 @@ def run_hurl_orchestrator(
     ``--variables-file``.
     With *strict* a failure matching a node's ``known_failures`` still fails the
     run.  After execution a zip archive of all hurl reports is written to
-    *report_zip* in the current working directory.
+    *report_zip* relative to *test_dir*.  *timeout_seconds* limits each Hurl
+    process, and *jobs* limits parallel Hurl processes.
 
     Returns ``True`` if every step succeeded or was a tolerated known failure,
     ``False`` otherwise.
     """
+    if timeout_seconds < 1:
+        print("ERROR: timeout must be at least 1 second")
+        return False
+    if jobs is not None and jobs < 1:
+        print("ERROR: jobs must be at least 1")
+        return False
+
     if not dry_run and shutil.which("hurl") is None:
         print("ERROR: 'hurl' not found on PATH. Install it from https://hurl.dev")
         return False
@@ -814,10 +927,13 @@ def run_hurl_orchestrator(
             raise GraphError(f"ERROR: env file not found: {variables_file}")
         nodes, graph, pulled = _resolve_nodes(test_dir, files, resolve_deps)
     except GraphError as exc:
-        if dry_run and json_plan:
-            print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
-        else:
-            print(exc)
+        _print_run_error(str(exc), dry_run and json_plan)
+        return False
+
+    if not nodes:
+        _print_run_error(
+            f"ERROR: no .hurl files found in {test_dir}", dry_run and json_plan
+        )
         return False
 
     if dry_run and json_plan:
@@ -825,17 +941,7 @@ def run_hurl_orchestrator(
         print(json.dumps(document, indent=2))
         return True
 
-    if variables_file is not None:
-        print(f"Variables file: {variables_file}")
-    if files is not None and env_file is None:
-        for unused in unused_env_files(files, variables_file):
-            print(
-                f"NOTE: hurl-orchestra does not read {unused} when you give "
-                "files. It reads .env from the current directory. Add "
-                f"--env-file {unused} to read it."
-            )
-    if pulled:
-        print(f"Resolved dependencies: {', '.join(pulled)}")
+    _print_run_context(variables_file, files, env_file, pulled)
 
     if dry_run:
         _print_plan(nodes, graph)
@@ -852,9 +958,14 @@ def run_hurl_orchestrator(
                 extra,
                 Path(reports_root),
                 strict,
+                timeout_seconds,
+                jobs or MAX_WORKERS,
             )
-        except CycleError as e:
-            print(f"Circular dependency: {e}")
+        except CycleError as exc:
+            print(f"Circular dependency: {exc}")
+            return False
+        except GraphError as exc:
+            print(exc)
             return False
         stop_ms = int(time.time() * 1000)
         _print_tolerated_summary(outcome.tolerated)
@@ -884,7 +995,11 @@ def run_hurl_orchestrator(
             zip_base = str(report_path.with_suffix(""))
         else:
             zip_base = str(test_dir / report_path.with_suffix(""))
-        archive = shutil.make_archive(zip_base, "zip", reports_root)
+        try:
+            archive = shutil.make_archive(zip_base, "zip", reports_root)
+        except OSError as exc:
+            print(f"ERROR: Failed to write report archive: {exc}")
+            return False
         print(f"Report saved to {archive}")
 
     return outcome.success

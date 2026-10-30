@@ -37,7 +37,10 @@ class KnownFailureMatch:
     matched: tuple[str, ...]
 
     def describe(self) -> str:
-        return f"{self.failure.reason} (matched: {', '.join(self.matched)})"
+        text = f"{self.failure.reason} (matched: {', '.join(self.matched)})"
+        if self.failure.link:
+            text += f" ({self.failure.link})"
+        return text
 
 
 def _require_text(entry: dict[str, Any], key: str, node_id: str, index: int) -> str:
@@ -100,6 +103,12 @@ def _parse_header(
             f"ERROR: known_failures[{index}] for '{node_id}': 'header' must be a "
             "mapping with 'name' and 'pattern'"
         )
+    unknown = {str(key) for key in set(header) - {"name", "pattern"}}
+    if unknown:
+        raise KnownFailureError(
+            f"ERROR: known_failures[{index}] for '{node_id}': 'header' has "
+            f"unknown keys: {', '.join(sorted(unknown))}"
+        )
     name = _require_text(header, "name", node_id, index)
     pattern = _compile(
         _require_text(header, "pattern", node_id, index),
@@ -135,6 +144,22 @@ def _parse_entry(entry: Any, node_id: str, index: int) -> KnownFailure:
         raise KnownFailureError(
             f"ERROR: known_failures[{index}] for '{node_id}' must be a mapping; "
             f"got {type(entry).__name__}"
+        )
+    allowed_keys = {
+        "name",
+        "reason",
+        "until",
+        "link",
+        "status",
+        "header",
+        "body",
+        "stderr",
+    }
+    unknown = {str(key) for key in set(entry) - allowed_keys}
+    if unknown:
+        raise KnownFailureError(
+            f"ERROR: known_failures[{index}] for '{node_id}' has unknown keys: "
+            f"{', '.join(sorted(unknown))}"
         )
     header_name, header_pattern = _parse_header(entry, node_id, index)
     failure = KnownFailure(

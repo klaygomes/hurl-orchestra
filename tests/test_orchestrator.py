@@ -15,8 +15,6 @@ from hurl_orchestra import run_hurl_orchestrator
 from hurl_orchestra.cli import main
 
 
-
-
 def hurl_file(
     path: Path,
     *,
@@ -63,7 +61,7 @@ def fail(stderr: str = "assertion failed") -> CompletedProcess[str]:
 
 
 def writing_report(data: dict) -> object:
-    """Return a subprocess.run side_effect that writes *data* to the report directory."""
+    """Return a side_effect that writes *data* to the report directory."""
 
     def _run(cmd: list[str], **kwargs: object) -> CompletedProcess[str]:
         for i, part in enumerate(cmd):
@@ -81,8 +79,6 @@ def injected_variables(cmd: list[str]) -> str:
         for i, part in enumerate(cmd)
         if part == "--variables-file"
     )
-
-
 
 
 def test_missing_hurl_binary_prints_error(
@@ -104,9 +100,9 @@ def test_missing_hurl_binary_makes_no_subprocess_calls(tmp_path: Path) -> None:
     mock.assert_not_called()
 
 
-
-
-def test_single_step_success(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_single_step_success(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
     with patch("subprocess.run", return_value=ok()):
         run_hurl_orchestrator(str(tmp_path))
@@ -133,12 +129,14 @@ def test_id_falls_back_to_filename_stem(
     assert "SUCCESS: my_api" in capsys.readouterr().out
 
 
-def test_empty_directory_makes_no_subprocess_calls(tmp_path: Path) -> None:
+def test_empty_directory_fails_without_subprocess_calls(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     with patch("subprocess.run") as mock:
-        run_hurl_orchestrator(str(tmp_path))
+        result = run_hurl_orchestrator(str(tmp_path))
     mock.assert_not_called()
-
-
+    assert result is False
+    assert "no .hurl files found" in capsys.readouterr().out
 
 
 def test_dependency_executes_before_dependent(
@@ -209,9 +207,9 @@ def test_missing_alias_template_prints_error(
     assert "nonexistent_template" in out
 
 
-
-
-def test_null_outputs_are_treated_as_empty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_null_outputs_are_treated_as_empty(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "auth.hurl").write_text(
         "---\nid: auth\noutputs: null\n---\nGET https://example.com\n"
     )
@@ -224,7 +222,9 @@ def test_null_outputs_are_treated_as_empty(tmp_path: Path, capsys: pytest.Captur
     assert "SUCCESS: auth" in out
 
 
-def test_null_deps_are_treated_as_empty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_null_deps_are_treated_as_empty(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "auth.hurl").write_text(
         "---\nid: auth\ndeps: null\n---\nGET https://example.com\n"
     )
@@ -237,7 +237,9 @@ def test_null_deps_are_treated_as_empty(tmp_path: Path, capsys: pytest.CaptureFi
     assert "SUCCESS: auth" in out
 
 
-def test_invalid_dep_dict_length_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_invalid_dep_dict_length_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.hurl").write_text(
         "---\nid: a\ndeps:\n  - {x: y, z: w}\n---\nGET https://example.com\n"
     )
@@ -250,7 +252,9 @@ def test_invalid_dep_dict_length_fails(tmp_path: Path, capsys: pytest.CaptureFix
     assert "single-key dicts" in out
 
 
-def test_invalid_dep_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_invalid_dep_type_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.hurl").write_text(
         "---\nid: a\ndeps:\n  - 123\n---\nGET https://example.com\n"
     )
@@ -263,7 +267,9 @@ def test_invalid_dep_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert "must contain strings or dicts" in out
 
 
-def test_invalid_priority_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_invalid_priority_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.hurl").write_text(
         "---\nid: a\npriority: high\n---\nGET https://example.com\n"
     )
@@ -355,7 +361,9 @@ def test_args_per_file_comes_after_extra_hurl_args(tmp_path: Path) -> None:
     assert cmd[indices[1] + 1] == "30"
 
 
-def test_invalid_args_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_invalid_args_type_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.hurl").write_text(
         "---\nid: a\nargs: not-a-list\n---\nGET https://example.com\nHTTP 200\n"
     )
@@ -368,7 +376,9 @@ def test_invalid_args_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "args for 'a' must be a list" in out
 
 
-def test_invalid_args_item_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_invalid_args_item_type_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.hurl").write_text(
         "---\nid: a\nargs:\n  - 123\n---\nGET https://example.com\nHTTP 200\n"
     )
@@ -393,10 +403,14 @@ def test_no_args_field_does_not_break(tmp_path: Path) -> None:
         result = run_hurl_orchestrator(str(tmp_path))
 
     assert result is True
-    assert cmds[0][:3] == ["hurl", "--test", "--report-json"] or "--report-json" in cmds[0]
+    assert (
+        cmds[0][:3] == ["hurl", "--test", "--report-json"] or "--report-json" in cmds[0]
+    )
 
 
-def test_invalid_outputs_type_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_invalid_outputs_type_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.hurl").write_text(
         "---\nid: a\noutputs: 123\n---\nGET https://example.com\n"
     )
@@ -409,7 +423,9 @@ def test_invalid_outputs_type_fails(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert "outputs for 'a' must be a list" in out
 
 
-def test_invalid_deps_not_list_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_invalid_deps_not_list_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.hurl").write_text(
         "---\nid: a\ndeps: 123\n---\nGET https://example.com\n"
     )
@@ -422,7 +438,9 @@ def test_invalid_deps_not_list_fails(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "deps for 'a' must be a list" in out
 
 
-def test_empty_node_id_fails_validation(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_empty_node_id_fails_validation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "ping.hurl").write_text("---\nid: ''\n---\nGET https://example.com\n")
 
     with patch("subprocess.run", return_value=ok()):
@@ -433,7 +451,9 @@ def test_empty_node_id_fails_validation(tmp_path: Path, capsys: pytest.CaptureFi
     assert "must be a non-empty string" in out
 
 
-def test_direct_capture_report_structure_is_supported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_direct_capture_report_structure_is_supported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
     hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
 
@@ -453,7 +473,9 @@ def test_direct_capture_report_structure_is_supported(tmp_path: Path, capsys: py
     assert "SUCCESS: profile" in out
 
 
-def test_duplicate_capture_warnings_are_printed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_duplicate_capture_warnings_are_printed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
@@ -479,21 +501,28 @@ def test_duplicate_capture_warnings_are_printed(tmp_path: Path, capsys: pytest.C
     assert "SUCCESS: auth" in out
 
 
-def test_timeout_during_execution_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_timeout_during_execution_is_reported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
+    seen_timeouts: list[object] = []
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
-        raise subprocess.TimeoutExpired(cmd="hurl", timeout=300)
+        seen_timeouts.append(kw.get("timeout"))
+        raise subprocess.TimeoutExpired(cmd="hurl", timeout=12)
 
     with patch("subprocess.run", side_effect=fake_run):
-        result = run_hurl_orchestrator(str(tmp_path))
+        result = run_hurl_orchestrator(str(tmp_path), timeout_seconds=12)
 
     out = capsys.readouterr().out
     assert result is False
-    assert "Hurl timed out after 300 seconds" in out
+    assert seen_timeouts == [12]
+    assert "Hurl timed out after 12 seconds" in out
 
 
-def test_internal_execution_exception_is_handled(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_internal_execution_exception_is_handled(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
 
     def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
@@ -508,7 +537,9 @@ def test_internal_execution_exception_is_handled(tmp_path: Path, capsys: pytest.
     assert "boom" in out
 
 
-def test_alias_template_string_deps_are_instantiated(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_alias_template_string_deps_are_instantiated(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "producer.hurl", id="producer")
     hurl_file(tmp_path / "base.hurl", id="base", deps=["producer"])
     hurl_file(tmp_path / "auth.hurl", id="auth", deps=[{"base": "shared_base"}])
@@ -522,12 +553,17 @@ def test_alias_template_string_deps_are_instantiated(tmp_path: Path, capsys: pyt
     assert "SUCCESS: auth" in out
 
 
-def test_execute_cycle_error_is_caught(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_execute_cycle_error_is_caught(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
 
-    with patch("shutil.which", return_value="/usr/bin/hurl"), patch(
-        "hurl_orchestra.orchestrator._execute",
-        side_effect=CycleError("cycle detected"),
+    with (
+        patch("shutil.which", return_value="/usr/bin/hurl"),
+        patch(
+            "hurl_orchestra.orchestrator._execute",
+            side_effect=CycleError("cycle detected"),
+        ),
     ):
         result = run_hurl_orchestrator(str(tmp_path))
 
@@ -677,8 +713,6 @@ def test_success_shows_injected_variables(
     assert "injected: auth_token" in capsys.readouterr().out
 
 
-
-
 def test_subprocess_cwd_set_to_test_directory(tmp_path: Path) -> None:
     hurl_file(tmp_path / "ping.hurl", id="ping")
     captured_kwargs: list[dict] = []
@@ -691,8 +725,6 @@ def test_subprocess_cwd_set_to_test_directory(tmp_path: Path) -> None:
         run_hurl_orchestrator(str(tmp_path))
 
     assert captured_kwargs[0]["cwd"] == str(tmp_path)
-
-
 
 
 def test_env_file_passed_via_variables_file(tmp_path: Path) -> None:
@@ -725,8 +757,6 @@ def test_no_env_file_omits_variables_file_arg(tmp_path: Path) -> None:
         run_hurl_orchestrator(str(tmp_path))
 
     assert "--variables-file" not in captured
-
-
 
 
 def test_alias_runs_same_template_under_different_names(
@@ -790,7 +820,7 @@ def test_shared_alias_referenced_by_two_consumers_runs_once(
 ) -> None:
     """Same alias used by two files must be instantiated and executed only once."""
     # Sorted glob order: a_svc → auth → b_svc.
-    # a_svc registers shared_auth; b_svc finds it already present → False branch covered.
+    # a_svc registers shared_auth; b_svc finds it already present.
     hurl_file(tmp_path / "auth.hurl", id="auth")
     hurl_file(tmp_path / "a_svc.hurl", id="a_svc", deps=[{"auth": "shared_auth"}])
     hurl_file(tmp_path / "b_svc.hurl", id="b_svc", deps=[{"auth": "shared_auth"}])
@@ -817,8 +847,6 @@ def test_alias_name_matching_template_id_does_not_duplicate_node(
         run_hurl_orchestrator(str(tmp_path))
 
     assert capsys.readouterr().out.count("SUCCESS: auth") == 1
-
-
 
 
 def test_positive_priority_runs_before_default_in_same_wave(
@@ -864,15 +892,25 @@ def test_priority_does_not_override_deps(
     assert out.index("SUCCESS: producer") < out.index("SUCCESS: consumer")
 
 
-
-
 def test_cli_defaults_to_current_directory() -> None:
     with (
         patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()
-    mock.assert_called_once_with(".", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
+    mock.assert_called_once_with(
+        ".",
+        extra_hurl_args=[],
+        report_zip="report.zip",
+        report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
+        strict=False,
+        json_plan=False,
+        env_file=None,
+        timeout_seconds=300,
+        jobs=None,
+    )
 
 
 def test_cli_passes_custom_directory_argument() -> None:
@@ -881,7 +919,19 @@ def test_cli_passes_custom_directory_argument() -> None:
         patch("sys.argv", ["hurl-orchestra", "/tmp/tests"]),
     ):
         main()
-    mock.assert_called_once_with("/tmp/tests", extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
+    mock.assert_called_once_with(
+        "/tmp/tests",
+        extra_hurl_args=[],
+        report_zip="report.zip",
+        report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
+        strict=False,
+        json_plan=False,
+        env_file=None,
+        timeout_seconds=300,
+        jobs=None,
+    )
 
 
 def test_cli_passes_specific_hurl_files() -> None:
@@ -890,7 +940,19 @@ def test_cli_passes_specific_hurl_files() -> None:
         patch("sys.argv", ["hurl-orchestra", "a.hurl", "b.hurl"]),
     ):
         main()
-    mock.assert_called_once_with(files=["a.hurl", "b.hurl"], extra_hurl_args=[], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
+    mock.assert_called_once_with(
+        files=["a.hurl", "b.hurl"],
+        extra_hurl_args=[],
+        report_zip="report.zip",
+        report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
+        strict=False,
+        json_plan=False,
+        env_file=None,
+        timeout_seconds=300,
+        jobs=None,
+    )
 
 
 def test_cli_forwards_extra_hurl_args_with_directory() -> None:
@@ -899,7 +961,19 @@ def test_cli_forwards_extra_hurl_args_with_directory() -> None:
         patch("sys.argv", ["hurl-orchestra", "./tests", "--verbose"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=["--verbose"], report_zip="report.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
+    mock.assert_called_once_with(
+        "./tests",
+        extra_hurl_args=["--verbose"],
+        report_zip="report.zip",
+        report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
+        strict=False,
+        json_plan=False,
+        env_file=None,
+        timeout_seconds=300,
+        jobs=None,
+    )
 
 
 def test_cli_forwards_extra_hurl_args_with_files() -> None:
@@ -918,6 +992,8 @@ def test_cli_forwards_extra_hurl_args_with_files() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        timeout_seconds=300,
+        jobs=None,
     )
 
 
@@ -937,8 +1013,6 @@ def test_cli_exits_with_code_0_on_success(tmp_path: Path) -> None:
         patch("sys.argv", ["hurl-orchestra"]),
     ):
         main()  # must not raise
-
-
 
 
 def test_specific_files_only_runs_given_files(
@@ -962,7 +1036,9 @@ def test_extra_hurl_args_forwarded_to_subprocess(tmp_path: Path) -> None:
         return ok()
 
     with patch("subprocess.run", side_effect=fake_run):
-        run_hurl_orchestrator(str(tmp_path), extra_hurl_args=["--verbose", "--variable", "x=y"])
+        run_hurl_orchestrator(
+            str(tmp_path), extra_hurl_args=["--verbose", "--variable", "x=y"]
+        )
 
     assert "--verbose" in cmds[0]
     assert "--variable" in cmds[0]
@@ -970,7 +1046,7 @@ def test_extra_hurl_args_forwarded_to_subprocess(tmp_path: Path) -> None:
 
 
 def test_specific_files_env_file_resolved_from_test_dir(tmp_path: Path) -> None:
-    """When files are passed, .env is looked up in test_dir (default CWD), not file parent."""
+    """When files are passed, .env is looked up in test_dir, not the file parent."""
     sub = tmp_path / "sub"
     sub.mkdir()
     hurl_file(sub / "ping.hurl", id="ping")
@@ -984,15 +1060,15 @@ def test_specific_files_env_file_resolved_from_test_dir(tmp_path: Path) -> None:
         return ok()
 
     with patch("subprocess.run", side_effect=fake_run):
-        run_hurl_orchestrator(
-            str(tmp_path), files=[str(sub / "ping.hurl")]
-        )
+        run_hurl_orchestrator(str(tmp_path), files=[str(sub / "ping.hurl")])
 
     assert "--variables-file" in captured
     assert str(tmp_path / ".env") in captured
 
 
-def test_specific_files_env_file_uses_cwd_when_no_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_specific_files_env_file_uses_cwd_when_no_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When files passed without explicit dir, .env is resolved from CWD."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("base_url=https://example.com")
@@ -1008,8 +1084,6 @@ def test_specific_files_env_file_uses_cwd_when_no_dir(tmp_path: Path, monkeypatc
         run_hurl_orchestrator(files=[str(tmp_path / "ping.hurl")])
 
     assert "--variables-file" in captured
-
-
 
 
 def test_report_zip_created_with_default_name(tmp_path: Path) -> None:
@@ -1056,13 +1130,22 @@ def test_cli_report_zip_custom_name() -> None:
     assert mock.call_args.kwargs["report_zip"] == "run.zip"
 
 
-
-
 def test_cli_double_dash_splits_hurl_args() -> None:
     """Args after -- are forwarded verbatim to hurl."""
     with (
         patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
-        patch("sys.argv", ["hurl-orchestra", "./tests", "--", "--variable", "k=v", "--connect-timeout", "10"]),
+        patch(
+            "sys.argv",
+            [
+                "hurl-orchestra",
+                "./tests",
+                "--",
+                "--variable",
+                "k=v",
+                "--connect-timeout",
+                "10",
+            ],
+        ),
     ):
         main()
     mock.assert_called_once_with(
@@ -1075,6 +1158,8 @@ def test_cli_double_dash_splits_hurl_args() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        timeout_seconds=300,
+        jobs=None,
     )
 
 
@@ -1082,7 +1167,18 @@ def test_cli_mixed_known_flags_and_double_dash() -> None:
     """Known flags before --, hurl value-flags after --."""
     with (
         patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
-        patch("sys.argv", ["hurl-orchestra", "--report-zip", "r.zip", "./tests", "--", "--variable", "x=1"]),
+        patch(
+            "sys.argv",
+            [
+                "hurl-orchestra",
+                "--report-zip",
+                "r.zip",
+                "./tests",
+                "--",
+                "--variable",
+                "x=1",
+            ],
+        ),
     ):
         main()
     mock.assert_called_once_with(
@@ -1095,6 +1191,8 @@ def test_cli_mixed_known_flags_and_double_dash() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        timeout_seconds=300,
+        jobs=None,
     )
 
 
@@ -1115,6 +1213,8 @@ def test_cli_boolean_passthrough_without_double_dash() -> None:
         strict=False,
         json_plan=False,
         env_file=None,
+        timeout_seconds=300,
+        jobs=None,
     )
 
 
@@ -1125,10 +1225,24 @@ def test_cli_order_independent_known_flags() -> None:
         patch("sys.argv", ["hurl-orchestra", "--report-zip", "r.zip", "./tests"]),
     ):
         main()
-    mock.assert_called_once_with("./tests", extra_hurl_args=[], report_zip="r.zip", report_ctrf=None, resolve_deps=True, dry_run=False, strict=False, json_plan=False, env_file=None)
+    mock.assert_called_once_with(
+        "./tests",
+        extra_hurl_args=[],
+        report_zip="r.zip",
+        report_ctrf=None,
+        resolve_deps=True,
+        dry_run=False,
+        strict=False,
+        json_plan=False,
+        env_file=None,
+        timeout_seconds=300,
+        jobs=None,
+    )
 
 
-def test_report_zip_in_cwd_when_no_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_report_zip_in_cwd_when_no_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When no directory is passed, report goes to CWD."""
     monkeypatch.chdir(tmp_path)
     hurl_file(tmp_path / "ping.hurl", id="ping")
@@ -1156,7 +1270,13 @@ def test_cli_diagram_custom_output(tmp_path: Path) -> None:
         patch("hurl_orchestra.cli.write_diagram", return_value=True) as mock,
         patch(
             "sys.argv",
-            ["hurl-orchestra", "--diagram", "--diagram-output", "out.md", str(tmp_path)],
+            [
+                "hurl-orchestra",
+                "--diagram",
+                "--diagram-output",
+                "out.md",
+                str(tmp_path),
+            ],
         ),
     ):
         main()
@@ -1606,3 +1726,172 @@ def test_cli_passes_env_file(tmp_path: Path) -> None:
     ):
         main()
     assert mock.call_args.kwargs["env_file"] == "ci.env"
+
+
+@pytest.mark.parametrize("node_id", ["../escape", "a/b", "a\\b", ".", ".."])
+def test_unsafe_node_ids_fail(
+    tmp_path: Path,
+    node_id: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    hurl_file(tmp_path / "evil.hurl", id=node_id)
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    assert result is False
+    assert "must contain only letters, digits" in capsys.readouterr().out
+
+
+def test_duplicate_node_ids_fail(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="same")
+    hurl_file(tmp_path / "b.hurl", id="same")
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "duplicate node id 'same'" in out
+    assert "a.hurl" in out and "b.hurl" in out
+
+
+def test_alias_instance_name_collision_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "a.hurl", id="a")
+    hurl_file(tmp_path / "b.hurl", id="b")
+    hurl_file(tmp_path / "c1.hurl", id="c1", deps=[{"a": "shared"}])
+    hurl_file(tmp_path / "c2.hurl", id="c2", deps=[{"b": "shared"}])
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "collides with a node from template" in out
+
+
+def test_unknown_frontmatter_keys_fail(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\ndep: [b]\n---\nGET https://example.com\n"
+    )
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "unknown frontmatter keys: dep" in out
+
+
+def test_malformed_frontmatter_is_a_clean_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.hurl").write_text("---\nid: [\n---\nGET https://example.com\n")
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "cannot parse" in out
+
+
+def test_boolean_priority_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.hurl").write_text(
+        "---\nid: a\npriority: true\n---\nGET https://example.com\n"
+    )
+
+    result = run_hurl_orchestrator(str(tmp_path), dry_run=True)
+
+    assert result is False
+    assert "priority for 'a' must be an integer" in capsys.readouterr().out
+
+
+def test_relative_env_path_is_resolved_for_the_hurl_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    suite = tmp_path / "tests"
+    suite.mkdir()
+    (suite / ".env").write_text("base_url=https://example.com")
+    hurl_file(suite / "ping.hurl", id="ping")
+    captured: list[str] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        captured.extend(cmd)
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator("tests")
+
+    assert result is True
+    assert str((suite / ".env").absolute()) in captured
+
+
+def test_captured_value_with_newline_fails_before_injection(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "auth.hurl", id="auth", outputs=["token"])
+    hurl_file(tmp_path / "profile.hurl", id="profile", deps=["auth"])
+    report = [{"entries": [{"captures": [{"name": "token", "value": "a\nb"}]}]}]
+    calls = 0
+
+    def fake_run(cmd: list[str], **kw: object) -> CompletedProcess[str]:
+        nonlocal calls
+        calls += 1
+        for index, part in enumerate(cmd):
+            if part == "--report-json" and calls == 1:
+                (Path(cmd[index + 1]) / "report.json").write_text(json.dumps(report))
+        return ok()
+
+    with patch("subprocess.run", side_effect=fake_run):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "line break" in out
+    assert calls == 1
+
+
+def test_cli_passes_timeout_and_jobs(tmp_path: Path) -> None:
+    with (
+        patch("hurl_orchestra.cli.run_hurl_orchestrator", return_value=True) as mock,
+        patch(
+            "sys.argv",
+            ["hurl-orchestra", "--timeout", "7", "--jobs", "2", str(tmp_path)],
+        ),
+    ):
+        main()
+    assert mock.call_args.kwargs["timeout_seconds"] == 7
+    assert mock.call_args.kwargs["jobs"] == 2
+
+
+def test_report_archive_failure_fails_the_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    with (
+        patch("subprocess.run", return_value=ok()),
+        patch("shutil.make_archive", side_effect=OSError("disk full")),
+    ):
+        result = run_hurl_orchestrator(str(tmp_path))
+
+    assert result is False
+    assert "Failed to write report archive" in capsys.readouterr().out
+
+
+def test_invalid_timeout_and_jobs_are_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hurl_file(tmp_path / "ping.hurl", id="ping")
+
+    assert run_hurl_orchestrator(str(tmp_path), timeout_seconds=0) is False
+    assert "timeout must be at least 1" in capsys.readouterr().out
+
+    assert run_hurl_orchestrator(str(tmp_path), jobs=0) is False
+    assert "jobs must be at least 1" in capsys.readouterr().out

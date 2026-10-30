@@ -175,6 +175,13 @@ def _parse_condition(entry: Any, node_id: str, index: int) -> RetryCondition:
             f"got {type(entry).__name__}"
         )
 
+    unknown = {str(key) for key in set(entry) - {"status", "header", "body", "stderr"}}
+    if unknown:
+        raise RetryError(
+            f"ERROR: retry.when[{index}] for '{node_id}' has unknown keys: "
+            f"{', '.join(sorted(unknown))}"
+        )
+
     status = entry.get("status")
     if status is not None and (isinstance(status, bool) or not isinstance(status, int)):
         raise RetryError(
@@ -190,6 +197,12 @@ def _parse_condition(entry: Any, node_id: str, index: int) -> RetryCondition:
             raise RetryError(
                 f"ERROR: retry.when[{index}].header for '{node_id}' must be a mapping "
                 "with 'name' and 'pattern'"
+            )
+        unknown_header = {str(key) for key in set(header) - {"name", "pattern"}}
+        if unknown_header:
+            raise RetryError(
+                f"ERROR: retry.when[{index}].header for '{node_id}' has unknown "
+                f"keys: {', '.join(sorted(unknown_header))}"
             )
         header_name = str(header["name"])
         header_pattern = _compile(
@@ -272,7 +285,7 @@ def parse_retry(raw: Any, node_id: str) -> RetryPolicy:
             f"ERROR: retry.when for '{node_id}' must be a mapping or a list of mappings"
         )
 
-    unknown = set(raw) - {
+    allowed_keys = {
         "attempts",
         "backoff_ms",
         "max_backoff_ms",
@@ -281,6 +294,7 @@ def parse_retry(raw: Any, node_id: str) -> RetryPolicy:
         "respect_retry_after",
         "when",
     }
+    unknown = {str(key) for key in set(raw) - allowed_keys}
     if unknown:
         raise RetryError(
             f"ERROR: retry for '{node_id}' has unknown keys: "

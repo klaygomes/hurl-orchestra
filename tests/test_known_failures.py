@@ -523,9 +523,9 @@ def test_ctrf_marks_tolerated_entry_as_flaky_other(tmp_path: Path) -> None:
     assert create["status"] == "other"
     assert create["flaky"] is True
     assert create["tags"] == ["db_pool_exhausted"]
-    assert (
-        create["message"]
-        == "Shared test database at its connection limit (matched: status 500, header X-Error-Code=ERR-DB-53300)"
+    assert create["message"] == (
+        "Shared test database at its connection limit "
+        "(matched: status 500, header X-Error-Code=ERR-DB-53300)"
     )
 
     update = by_suite["update"]
@@ -563,3 +563,36 @@ def test_ctrf_without_known_failures_is_unchanged(tmp_path: Path) -> None:
     statuses = sorted(t["status"] for t in ctrf["results"]["tests"])
     assert statuses == ["failed", "skipped"]
     assert ctrf["results"]["summary"]["other"] == 0
+
+
+def test_unknown_known_failure_key_is_rejected() -> None:
+    with pytest.raises(KnownFailureError, match="unknown keys: statsu"):
+        parse_known_failures(
+            [{"name": "n", "reason": "r", "status": 500, "statsu": 500}], "node"
+        )
+
+
+def test_unknown_known_failure_header_key_is_rejected() -> None:
+    with pytest.raises(KnownFailureError, match="header.*unknown keys: patern"):
+        parse_known_failures(
+            [
+                {
+                    "name": "n",
+                    "reason": "r",
+                    "header": {"name": "X", "patern": ".*"},
+                }
+            ],
+            "node",
+        )
+
+
+def test_known_failure_link_is_shown(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    entry = {**DB_POOL, "link": "https://example.test/runbook"}
+    hurl_file(tmp_path / "create.hurl", id="create", known=[entry])
+    with patch("subprocess.run", side_effect=runner({"create": FAILING_500})):
+        ok = run_hurl_orchestrator(str(tmp_path))
+    out = capsys.readouterr().out
+    assert ok is True
+    assert "(https://example.test/runbook)" in out

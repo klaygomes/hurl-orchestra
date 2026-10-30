@@ -14,7 +14,6 @@ import pytest
 from hurl_orchestra.orchestrator import run_step
 from hurl_orchestra.retry import (
     RetryError,
-    RetryPolicy,
     parse_retry,
     retry_after_ms,
 )
@@ -205,9 +204,7 @@ def test_full_jitter_stays_inside_the_window() -> None:
 
 
 def test_retry_after_seconds_wins_over_backoff() -> None:
-    policy = parse_retry(
-        {"attempts": 3, "backoff_ms": 100, "jitter": "none"}, "n"
-    )
+    policy = parse_retry({"attempts": 3, "backoff_ms": 100, "jitter": "none"}, "n")
     assert policy.delay_ms(1, response(429, {"Retry-After": "7"})) == 7000
 
 
@@ -269,7 +266,9 @@ def test_when_limits_retries_to_the_declared_signature(tmp_path: Path) -> None:
 
 
 def test_when_can_match_stderr_with_no_response(tmp_path: Path) -> None:
-    policy = parse_retry({"attempts": 3, "when": [{"stderr": "Connection refused"}]}, "n")
+    policy = parse_retry(
+        {"attempts": 3, "when": [{"stderr": "Connection refused"}]}, "n"
+    )
     assert policy.should_retry(1, None, tmp_path, "error: Connection refused") is True
     assert policy.should_retry(1, None, tmp_path, "error: Assert failed") is False
 
@@ -373,3 +372,19 @@ def test_retry_honours_a_retry_after_header(tmp_path: Path) -> None:
         step(data, tmp_path / "n", slept)
 
     assert slept == [2.0]
+
+
+def test_unknown_retry_condition_key_is_rejected() -> None:
+    with pytest.raises(RetryError, match="unknown keys: statsu"):
+        parse_retry({"attempts": 2, "when": [{"status": 429, "statsu": 500}]}, "n")
+
+
+def test_unknown_retry_header_key_is_rejected() -> None:
+    with pytest.raises(RetryError, match="header.*unknown keys: patern"):
+        parse_retry(
+            {
+                "attempts": 2,
+                "when": [{"header": {"name": "Retry-After", "patern": ".*"}}],
+            },
+            "n",
+        )
