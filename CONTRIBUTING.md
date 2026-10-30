@@ -58,5 +58,5 @@ The README is the sales page of the project. Vale does not check it.
 
 1. Make a branch from `main`.
 2. Make your changes and add tests.
-3. Run `make check` and `make docs-check`.
+3. Run `make check` and `make docs-check`. Run `make coverage` to open the coverage report.
 4. Open the pull request.
