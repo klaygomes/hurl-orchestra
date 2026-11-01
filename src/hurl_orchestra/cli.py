@@ -84,8 +84,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest="resolve_deps",
         action="store_false",
         help=(
-            "Run only the listed .hurl files. Do not add their declared deps"
-            " from the same directory."
+            "Run only the listed .hurl files. Every declared dep must also be"
+            " in the list, or the run stops with an error. Without this flag,"
+            " hurl-orchestra adds the deps from the same directory."
         ),
     )
     parser.add_argument(
@@ -96,7 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="With --dry-run, write the plan as JSON for scripts and AI agents.",
+        help=(
+            "With --dry-run, write the plan as JSON for scripts and AI agents."
+            " The plan lists the deps that file mode adds in 'resolved'."
+        ),
     )
     parser.add_argument(
         "--strict",

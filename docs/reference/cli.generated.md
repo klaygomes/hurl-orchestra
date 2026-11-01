@@ -6,9 +6,9 @@
 | `--env-file` `FILE` | - | Give this variables file to each hurl call. The default is .env in the given directory, or in the current directory for files. |
 | `--secrets-file` `FILE` | - | Give this file of secrets to each hurl call with --secrets-file. Hurl redacts the values from its logs and reports. |
 | `--inject-as-variables` | - | Give captured values to hurl as variables, not secrets. Hurl then writes them in its reports. Do not use it with real credentials. |
-| `--no-deps` | - | Run only the listed .hurl files. Do not add their declared deps from the same directory. |
+| `--no-deps` | - | Run only the listed .hurl files. Every declared dep must also be in the list, or the run stops with an error. Without this flag, hurl-orchestra adds the deps from the same directory. |
 | `--dry-run` | - | Show the execution plan. Do not run hurl. |
-| `--json` | - | With --dry-run, write the plan as JSON for scripts and AI agents. |
+| `--json` | - | With --dry-run, write the plan as JSON for scripts and AI agents. The plan lists the deps that file mode adds in 'resolved'. |
 | `--strict` | - | Make a failure that matches known_failures fail the run. |
 | `--timeout` `SECONDS` | `300` | Limit each Hurl process to this many seconds. The default is 300. |
 | `--jobs` `N` | - | Run at most N Hurl processes at the same time. |

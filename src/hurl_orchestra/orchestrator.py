@@ -1023,7 +1023,17 @@ def _resolve_nodes(
     if files is None:
         nodes, graph = build_graph(sorted(test_dir.glob("*.hurl")))
         return nodes, graph, []
-    return resolve_files([Path(f) for f in files], resolve_deps)
+    try:
+        return resolve_files([Path(f) for f in files], resolve_deps)
+    except GraphError as exc:
+        if not resolve_deps and "depends on" in str(exc):
+            raise GraphError(
+                f"{exc}\nHINT: --no-deps runs only the files that you list. "
+                "Add each dependency file to the command, or remove --no-deps "
+                "to add the dependencies from the same directory. Use "
+                "--dry-run --json to inspect the resolved dependencies."
+            ) from exc
+        raise
 
 
 def _write_reports(

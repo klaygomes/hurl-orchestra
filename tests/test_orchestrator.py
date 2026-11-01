@@ -1397,6 +1397,8 @@ def test_no_deps_requires_explicit_dependency_files(
     out = capsys.readouterr().out
     assert result is False
     assert "no .hurl file or alias defines id: auth" in out
+    assert "HINT: --no-deps runs only the files that you list" in out
+    assert "remove --no-deps" in out
     mock.assert_not_called()
 
 
