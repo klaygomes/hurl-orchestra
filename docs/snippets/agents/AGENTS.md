@@ -12,6 +12,7 @@ Rules:
 - Put URLs and secrets in variables. Do not write a secret in a file.
 - Put a shared credential in the file of `--secrets-file`. Do not use `--inject-as-variables` with a real credential.
 - Do not give `--test`, `--report-json` or `--secrets-file` to Hurl. hurl-orchestra owns these options.
+- Run a single file without `--no-deps` to add its declared dependencies from the same directory. With `--no-deps`, put every dependency file on the command line.
 - Do not add `known_failures` to hide a failure. Ask a human first.
 
 Procedure after each change:

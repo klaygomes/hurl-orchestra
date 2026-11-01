@@ -49,7 +49,8 @@ Solution:
 
 1. Make sure that a file has `id: bar`, or the name `bar.hurl`.
 2. Put that file in the same directory as `foo`.
-3. If you use `--no-deps`, give the file on the command line.
+3. If you use `--no-deps`, give every dependency file on the command line, or remove `--no-deps`.
+4. Run `--dry-run --json` and read `resolved` to check the files that file mode adds.
 
 ## `ERROR: alias template 'X' not found (used as 'Y')`
 

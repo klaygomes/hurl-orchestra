@@ -26,6 +26,7 @@ Use `.venv/bin/python`, `.venv/bin/pytest`, `.venv/bin/ruff` and `.venv/bin/mypy
 - hurl-orchestra owns `--test`, `--report-json` and `--secrets-file`. Reject a user copy with a clear error.
 - Captured values travel as Hurl secrets. The `--inject-as-variables` flag is the only exception.
 - Never retry a Hurl exit code 1 (command line) or 2 (parse).
+- File mode without `--no-deps` resolves sibling deps. With `--no-deps`, every dep must be listed or validation stops the run. Test both paths.
 
 ## Test rules
 

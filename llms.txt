@@ -22,6 +22,7 @@ This file points AI agents and other tools to the documentation of hurl-orchestr
 
 - One scenario in each `.hurl` file.
 - Declare each dependency in `deps` and each shared value in `outputs`.
-- Use `--dry-run --json` to check the graph before a run.
+- Use `--dry-run --json` to check the graph before a run. Read `resolved` to see the deps that file mode adds.
+- With `--no-deps`, list every dependency file. Without it, hurl-orchestra adds the deps from the same directory.
 - Use `--report-ctrf` for CI results.
 - Hurl 7.1.0 or later is required. The tests run with 8.1.0.

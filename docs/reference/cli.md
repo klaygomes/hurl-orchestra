@@ -18,6 +18,10 @@ A script makes this table from the parser of the command. Thus the table and `hu
 | One path that does not end in `.hurl` | Directory mode on that directory. |
 | One or more `.hurl` files | File mode. hurl-orchestra adds the dependencies from the same directories. |
 
+File mode resolves each declared dependency among the `.hurl` files in the same directories. To stop the resolution, add `--no-deps`. Then every dependency must also be on the command line, or the run stops before the first request.
+
+The JSON plan shows the dependencies that file mode adds in `resolved`. Use `--dry-run --json` to inspect them before a run.
+
 ## Hurl options
 
 Put Hurl options after `--`. hurl-orchestra gives them to each Hurl call. For more information, read [Give flags to Hurl](/how-to/pass-hurl-flags).

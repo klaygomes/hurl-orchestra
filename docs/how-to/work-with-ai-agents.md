@@ -8,7 +8,8 @@ hurl-orchestra is AI first API automation testing. It has no model inside. Its f
 |---|---|
 | Plain-text Hurl files | A request and its assertions in one small file, with no code to compile. |
 | Frontmatter with a few fields | The agent declares the order in `deps`. It does not write a script for it. |
-| `--dry-run --json` | A plan that the agent can parse: the waves, the files and the variable names of each node. |
+| `--dry-run --json` | A plan that the agent can parse: the waves, the resolved dependencies and the variable names of each node. |
+| `--no-deps` with a hint | A dependency that has no file stops the run, and the message names the fix. |
 | One-line errors | Each error names the node and the field, for example `ERROR: deps for 'foo' must be a list`. |
 | CTRF results | A JSON file with one test for each request and the reason for each failure. |
 | `known_failures` with `reason` and `until` | A tolerance that a human reviews. An agent cannot hide a failure without a trace. |
@@ -26,6 +27,8 @@ hurl-orchestra is AI first API automation testing. It has no model inside. Its f
    ```bash
    hurl-orchestra --dry-run --json tests
    ```
+
+   Read `resolved` in the plan. It lists the dependencies that file mode adds. If the command uses `--no-deps`, every dependency must be in the file list.
 
 4. Let the agent run the suite and read `tests/results.json`.
 5. Review the new files and the plan in the pull request, as you review code.
