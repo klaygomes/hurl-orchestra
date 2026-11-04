@@ -139,6 +139,39 @@ def test_empty_directory_fails_without_subprocess_calls(
     assert "no .hurl files found" in capsys.readouterr().out
 
 
+def test_missing_directory_error_names_the_path_and_the_current_directory(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with patch("subprocess.run") as mock:
+        result = run_hurl_orchestrator("e2e/desk")
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert "ERROR: path does not exist: e2e/desk" in out
+    assert f"Current directory: {Path.cwd()}" in out
+    assert "HINT:" in out
+    mock.assert_not_called()
+
+
+def test_path_that_is_not_a_directory_prints_a_clear_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "README"
+    target.write_text("not a suite\n")
+
+    with patch("subprocess.run") as mock:
+        result = run_hurl_orchestrator(str(target))
+
+    out = capsys.readouterr().out
+    assert result is False
+    assert f"ERROR: path is not a directory: {target}" in out
+    assert "HINT:" in out
+    mock.assert_not_called()
+
+
 def test_dependency_executes_before_dependent(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
