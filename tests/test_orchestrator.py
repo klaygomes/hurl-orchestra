@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from graphlib import CycleError
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
@@ -12,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from hurl_orchestra import run_hurl_orchestrator
-from hurl_orchestra.cli import main
+from hurl_orchestra.cli import _package_version, main
 
 
 def hurl_file(
@@ -924,6 +925,28 @@ def test_priority_does_not_override_deps(
 
     out = capsys.readouterr().out
     assert out.index("SUCCESS: producer") < out.index("SUCCESS: consumer")
+
+
+def test_cli_version_prints_the_package_version(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with (
+        patch("hurl_orchestra.cli._package_version", return_value="9.9.9"),
+        patch("sys.argv", ["hurl-orchestra", "--version"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
+
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.strip() == "hurl-orchestra 9.9.9"
+
+
+def test_package_version_falls_back_when_metadata_is_missing() -> None:
+    with patch(
+        "hurl_orchestra.cli.version",
+        side_effect=PackageNotFoundError("hurl-orchestra"),
+    ):
+        assert _package_version() == "unknown"
 
 
 def test_cli_defaults_to_current_directory() -> None:

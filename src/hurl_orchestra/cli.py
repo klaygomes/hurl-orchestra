@@ -1,5 +1,6 @@
 import argparse
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from .orchestrator import run_hurl_orchestrator
@@ -17,6 +18,14 @@ def _positive_int(value: str) -> int:
             f"expected an integer of 1 or more; got {parsed}"
         )
     return parsed
+
+
+def _package_version() -> str:
+    """Return the installed version of the package."""
+    try:
+        return version("hurl-orchestra")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def _resolve_hurl_paths(paths: list[str]) -> list[Path]:
@@ -40,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
             "A directory with .hurl files, or one or more .hurl files."
             " The default is the current directory."
         ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_package_version()}",
+        help="Show the version of the package and stop.",
     )
     parser.add_argument(
         "--report-zip",
