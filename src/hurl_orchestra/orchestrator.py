@@ -1017,10 +1017,32 @@ def resolve_files(
     return nodes, graph, sorted(set(nodes) - roots)
 
 
+def _path_error(path: Path, problem: str, hint: str) -> str:
+    """Return a clear error for a path that a run cannot use."""
+    return f"ERROR: {problem}: {path}\nCurrent directory: {Path.cwd()}\nHINT: {hint}"
+
+
 def _resolve_nodes(
     test_dir: Path, files: list[str] | None, resolve_deps: bool
 ) -> tuple[Nodes, Graph, list[str]]:
     if files is None:
+        if not test_dir.exists():
+            raise GraphError(
+                _path_error(
+                    test_dir,
+                    "path does not exist",
+                    "run the command from the folder that holds the path, or "
+                    "give the correct path.",
+                )
+            )
+        if not test_dir.is_dir():
+            raise GraphError(
+                _path_error(
+                    test_dir,
+                    "path is not a directory",
+                    "give a directory with .hurl files, or name each .hurl file.",
+                )
+            )
         nodes, graph = build_graph(sorted(test_dir.glob("*.hurl")))
         return nodes, graph, []
     try:

@@ -1,6 +1,7 @@
 | Option | Default | Description |
 |---|---|---|
 | `paths` | `.` | A directory with .hurl files, or one or more .hurl files. The default is the current directory. |
+| `--version` | - | Show the version of the package and stop. |
 | `--report-zip` `FILE` | `report.zip` | Write the hurl reports of all nodes to this zip file. |
 | `--report-ctrf` `FILE` | - | Also write a CTRF JSON report to this file. |
 | `--env-file` `FILE` | - | Give this variables file to each hurl call. The default is .env in the given directory, or in the current directory for files. |
